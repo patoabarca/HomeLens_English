@@ -4,10 +4,10 @@ Asistente educativo inteligente para el aprendizaje contextual del idioma inglé
 
 ---
 
-## 📌 Repositorio y Rama de Trabajo
+## 📌 Repositorio y Entorno
 - **Repositorio Remoto:** [https://github.com/patoabarca/HomeLens_English](https://github.com/patoabarca/HomeLens_English)
 - **Tipo de Repositorio:** Privado
-- **Rama de Trabajo:** `HLE_Lucas`
+- **Rama Principal:** `main`
 
 ---
 
@@ -147,7 +147,7 @@ docker compose up --build
 ## 💻 Ejecución Local (Sin Docker)
 
 ### 1. Requisitos Previos
-- Python 3.10 o 3.11 instalado.
+- Python 3.10, 3.11 o superior instalado.
 - Git.
 
 ### 2. Crear y Activar Entorno Virtual
@@ -182,11 +182,16 @@ Abre en tu navegador: [http://localhost:8501](http://localhost:8501).
 
 ## 🧪 Pruebas Automatizadas
 
-Para ejecutar la suite completa de pruebas unitarias con pytest:
+Para ejecutar la suite completa de pruebas unitarias:
 
-```bash
-pytest -v
-```
+- Con **pytest**:
+  ```bash
+  pytest -v
+  ```
+- O con el módulo estándar **unittest**:
+  ```bash
+  python -m unittest discover -s tests -v
+  ```
 
 ---
 
@@ -198,6 +203,23 @@ En el modo demostración (sin credenciales externas configuradas):
 - ✅ **Navegación interactiva:** Es posible alternar entre todas las secciones del menú ("Inicio / Estado", "Exploración Visual", "Prácticas y Cuestionarios", "Desafíos Find It", "Mi Progreso").
 - ✅ **Carga y previsualización de imágenes:** Admite carga de archivos JPEG y PNG con validación de límites.
 - 🟡 **Servicios externos protegidos:** Los servicios que requieren API keys (Gemini, Supabase, TTS) muestran estado pendiente de forma informativa y limpia.
+
+---
+
+## 📋 Estado de la Entrega 1
+
+- [x] Repositorio Git local inicializado y vinculado al origen remoto.
+- [x] Exclusión de credenciales asegurada con `.gitignore` previo y `.env.example`.
+- [x] Modelos de dominio compartidos (`homelens/modelos.py`) con validaciones e invariantes.
+- [x] Sistema de manejo de errores controlado (`homelens/errores.py`) con `Resultado[T]`.
+- [x] Módulo M0 (`config.py`, `telemetria.py`) para arranque seguro de la aplicación.
+- [x] Módulo M2 (`imagenes.py`) con validación estricta de formatos y dimensiones.
+- [x] Módulo M4 (`exploracion.py`) con funciones puras para recuadros en pantalla.
+- [x] Módulo M8 (`progreso.py`) con cálculo puro de palabras y estadísticas.
+- [x] Arquitectura de persistencia (`datos/repositorio.py`) e integraciones preparadas.
+- [x] Interfaz inicial de Streamlit (`app.py`) con navegación modular.
+- [x] Entorno de contenedorización (`Dockerfile`, `compose.yaml`, `.dockerignore`).
+- [x] Suite de pruebas automatizadas con 100% de cobertura sobre las funciones puras.
 
 ---
 
