@@ -34,5 +34,3 @@ temp/
 tmp/
 *.log
 
-# Docker
-.dockerignore

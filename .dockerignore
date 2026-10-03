@@ -1,0 +1,51 @@
+# ==========================================
+# Exclusiones de contexto para Docker
+# ==========================================
+
+# Control de versiones y metadatos
+.git/
+.gitignore
+.github/
+
+# Secretos y variables de entorno
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.cert
+credentials.json
+client_secrets.json
+.streamlit/secrets.toml
+
+# Entornos virtuales y dependencias locales
+.venv/
+venv/
+env/
+ENV/
+
+# Caches de Python y compilados
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Archivos de pruebas y documentación no requerida en tiempo de ejecución
+tests/
+HomeLens_English_*.md
+
+# Editores e IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Temporales y registros
+tmp/
+temp/
+*.log
