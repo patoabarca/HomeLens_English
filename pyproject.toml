@@ -1,0 +1,20 @@
+[project]
+name = "homelens-english"
+version = "0.1.0"
+description = "Asistente educativo inteligente para el aprendizaje de inglés a través de la exploración visual y desafíos interactivos."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "streamlit>=1.35.0",
+    "pydantic>=2.7.0",
+    "python-dotenv>=1.0.1",
+    "pillow>=10.3.0",
+    "google-generativeai>=0.7.0",
+    "google-cloud-texttospeech>=2.16.0",
+    "supabase>=2.4.0",
+    "pytest>=8.2.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
