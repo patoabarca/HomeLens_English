@@ -9,6 +9,7 @@ import streamlit as st
 from homelens.config import cargar_configuracion
 from homelens.acceso import obtener_usuario_actual
 from homelens.ui.estado import inicializar_estado_sesion
+from homelens.ui.captura import renderizar_pantalla_captura
 
 
 def main() -> None:
@@ -53,6 +54,11 @@ def main() -> None:
         st.write(f"• **Supabase:** {'🟢 Configurado' if config.tiene_supabase else '🟡 Pendiente (.env)'}")
         st.write(f"• **TTS Idioma:** `{config.google_tts_language_code}`")
 
+        if st.session_state.imagen_preparada is not None:
+            st.divider()
+            st.success("🖼️ Imagen activa en memoria")
+            st.caption(f"{st.session_state.imagen_preparada.ancho}x{st.session_state.imagen_preparada.alto} px ({st.session_state.imagen_preparada.mime_type})")
+
     # Contenido Principal
     if seccion == "Inicio / Estado":
         st.header("Bienvenido a HomeLens English")
@@ -61,10 +67,10 @@ def main() -> None:
             **HomeLens English** es un asistente educativo inteligente diseñado para transformar objetos cotidianos
             en oportunidades de aprendizaje de vocabulario y gramática en inglés.
 
-            ### Estado de la Entrega 1:
+            ### Estado del Sistema:
             - ✅ **M0 Configuración y Entorno:** Validado y cargado de forma segura.
-            - ✅ **Estructuras y Modelos de Dominio:** Definidos e inmutables (M0-M8).
-            - ✅ **Manejo de Errores e Invariantes:** Contenedor `Resultado[T]` y `ErrorOperacion` implementados.
+            - ✅ **M2 Captura y Preparación:** Validación estricta, orientación EXIF y saneamiento en memoria.
+            - ✅ **Estructuras de Dominio:** Modelos inmutables e invariantes compartidas (M0-M8).
             - ✅ **Aislamiento de Secretos:** Exclusión estricta de credenciales en `.gitignore` y plantilla `.env.example`.
             - ✅ **Entorno Docker:** `Dockerfile`, `compose.yaml` y `.dockerignore` configurados.
             """
@@ -79,19 +85,15 @@ def main() -> None:
             st.metric(label="Modelo Gemini Previsto", value=config.gemini_model)
 
     elif seccion == "Exploración Visual":
-        st.header("📸 Exploración Visual")
-        st.info("El módulo de captura y análisis interactivo con Gemini estará disponible a partir del Paso 2.")
-        uploaded_file = st.file_uploader("Subir imagen de prueba (JPEG / PNG)", type=["jpg", "jpeg", "png"])
-        if uploaded_file is not None:
-            st.image(uploaded_file, caption="Vista previa de imagen cargada", use_column_width=True)
+        renderizar_pantalla_captura(config)
 
     elif seccion == "Prácticas y Cuestionarios":
         st.header("📝 Prácticas y Cuestionarios")
-        st.info("Los cuestionarios interactivos basados en tus exploraciones se activarán en los siguientes pasos.")
+        st.info("Los cuestionarios interactivos basados en tus exploraciones se activarán en las siguientes etapas.")
 
     elif seccion == "Desafíos Find It":
         st.header("🎯 Desafíos Find It")
-        st.info("El módulo de desafíos interactivos por categoría se activará en los siguientes pasos.")
+        st.info("El módulo de desafíos interactivos por categoría se activará en las siguientes etapas.")
 
     elif seccion == "Mi Progreso":
         st.header("📊 Mi Progreso")
