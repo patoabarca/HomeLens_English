@@ -7,7 +7,7 @@ Asistente educativo inteligente para el aprendizaje contextual del idioma inglé
 ## 📌 Repositorio y Rama de Trabajo
 - **Repositorio Remoto:** [https://github.com/patoabarca/HomeLens_English](https://github.com/patoabarca/HomeLens_English)
 - **Tipo de Repositorio:** Privado
-- **Rama Actual de Trabajo:** `HLE_Pato` (Parte 3: Captura y preparación de imágenes)
+- **Rama Principal:** `main`
 
 ---
 
