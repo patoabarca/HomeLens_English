@@ -4,11 +4,10 @@ from __future__ import annotations
 import streamlit as st
 
 from homelens.config import Configuracion
-from homelens.imagenes import preparar_imagen, LIMITE_TAMANIO_BYTES_POR_DEFECTO
+from homelens.imagenes import preparar_imagen
 from homelens.ui.estado import (
     registrar_nueva_imagen,
     descartar_imagen_actual,
-    invalidar_preparacion_anterior,
 )
 
 
@@ -49,12 +48,16 @@ def renderizar_pantalla_captura(config: Configuracion) -> None:
 
     bytes_capturados: bytes | None = None
 
+    # Claves dinámicas vinculadas a la versión de estado para permitir reseteo limpio
+    uploader_key = f"uploader_archivo_{st.session_state.get('uploader_version', 0)}"
+    camera_key = f"captura_camara_{st.session_state.get('camera_version', 0)}"
+
     # Controles según origen seleccionado
     if nuevo_origen == "archivo":
         archivo_subido = st.file_uploader(
             "Selecciona una imagen de tu dispositivo:",
             type=["jpg", "jpeg", "png"],
-            key="uploader_archivo_imagen",
+            key=uploader_key,
             help="Archivos admitidos: .jpg, .jpeg, .png",
         )
         if archivo_subido is not None:
@@ -62,7 +65,7 @@ def renderizar_pantalla_captura(config: Configuracion) -> None:
     else:
         foto_camara = st.camera_input(
             "Toma una fotografía con tu cámara:",
-            key="captura_camara_imagen",
+            key=camera_key,
             help="Asegúrate de permitir el acceso a la cámara en tu navegador.",
         )
         if foto_camara is not None:
@@ -80,10 +83,20 @@ def renderizar_pantalla_captura(config: Configuracion) -> None:
         col_img, col_acciones = st.columns([3, 2])
 
         with col_img:
-            # Mostrar la imagen con la orientación y proporción adecuada
+            # Si ya está preparada, mostrar los bytes preparados limpios; si no, mostrar los originales
+            imagen_a_mostrar = (
+                st.session_state.imagen_preparada.contenido
+                if st.session_state.imagen_preparada is not None
+                else st.session_state.imagen_cargada_bytes
+            )
+            caption_texto = (
+                "Imagen Preparada (Orientación corregida y metadatos saneados)"
+                if st.session_state.imagen_preparada is not None
+                else "Imagen seleccionada (Original)"
+            )
             st.image(
-                st.session_state.imagen_cargada_bytes,
-                caption="Imagen seleccionada (Original)",
+                imagen_a_mostrar,
+                caption=caption_texto,
                 use_container_width=True,
             )
 
@@ -101,6 +114,7 @@ def renderizar_pantalla_captura(config: Configuracion) -> None:
                     if resultado.ok and resultado.valor is not None:
                         st.session_state.imagen_preparada = resultado.valor
                         st.session_state.error_preparacion = None
+                        st.rerun()
                     else:
                         st.session_state.imagen_preparada = None
                         st.session_state.error_preparacion = (
@@ -108,6 +122,7 @@ def renderizar_pantalla_captura(config: Configuracion) -> None:
                             if resultado.error
                             else "Error desconocido al procesar la imagen."
                         )
+                        st.rerun()
 
             # Botón para descartar y liberar
             if st.button("🗑️ Quitar / Reemplazar Imagen", use_container_width=True):

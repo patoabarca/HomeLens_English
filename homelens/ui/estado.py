@@ -26,6 +26,10 @@ def inicializar_estado_sesion() -> None:
         st.session_state.intento_activo_id = None
     if "operacion_en_curso" not in st.session_state:
         st.session_state.operacion_en_curso = False
+    if "uploader_version" not in st.session_state:
+        st.session_state.uploader_version = 0
+    if "camera_version" not in st.session_state:
+        st.session_state.camera_version = 0
 
 
 def invalidar_preparacion_anterior() -> None:
@@ -47,7 +51,7 @@ def registrar_nueva_imagen(contenido: Optional[bytes], origen: str) -> None:
 
 
 def descartar_imagen_actual() -> None:
-    """Descarta y libera completamente la imagen actual y su estado asociado."""
+    """Descarta y libera completamente la imagen actual y reinicia los widgets de captura."""
     if st.session_state.imagen_preparada is not None:
         liberar_imagen(st.session_state.imagen_preparada)
     st.session_state.imagen_cargada_bytes = None
@@ -56,6 +60,9 @@ def descartar_imagen_actual() -> None:
     st.session_state.exploracion_actual = None
     st.session_state.intento_activo_id = None
     st.session_state.operacion_en_curso = False
+    # Incrementar versiones de widgets para forzar el reseteo limpio en Streamlit
+    st.session_state.uploader_version = st.session_state.get("uploader_version", 0) + 1
+    st.session_state.camera_version = st.session_state.get("camera_version", 0) + 1
 
 
 def limpiar_estado_sesion() -> None:
