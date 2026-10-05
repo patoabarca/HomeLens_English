@@ -4,7 +4,7 @@ Asistente educativo inteligente para el aprendizaje contextual del idioma inglé
 
 ---
 
-## 📌 Repositorio y Rama de Trabajo
+## 📌 Repositorio y Entorno
 - **Repositorio Remoto:** [https://github.com/patoabarca/HomeLens_English](https://github.com/patoabarca/HomeLens_English)
 - **Tipo de Repositorio:** Privado
 - **Rama Principal:** `main`
@@ -245,6 +245,23 @@ En el modo demostración (sin credenciales externas configuradas):
 - ✅ **Captura y preparación M2:** Admite subir archivos o usar la cámara, previsualizar, corregir orientación y preparar la imagen en memoria.
 - ✅ **Aislamiento educativo:** No se muestran etiquetas falsas simulando análisis sobre fotos del usuario.
 - 🟡 **Servicios externos protegidos:** Los servicios que requieren API keys (Gemini, Supabase, TTS) muestran estado pendiente de forma informativa y limpia.
+
+---
+
+## 📋 Estado de la Entrega 1
+
+- [x] Repositorio Git local inicializado y vinculado al origen remoto.
+- [x] Exclusión de credenciales asegurada con `.gitignore` previo y `.env.example`.
+- [x] Modelos de dominio compartidos (`homelens/modelos.py`) con validaciones e invariantes.
+- [x] Sistema de manejo de errores controlado (`homelens/errores.py`) con `Resultado[T]`.
+- [x] Módulo M0 (`config.py`, `telemetria.py`) para arranque seguro de la aplicación.
+- [x] Módulo M2 (`imagenes.py`) con validación estricta de formatos y dimensiones.
+- [x] Módulo M4 (`exploracion.py`) con funciones puras para recuadros en pantalla.
+- [x] Módulo M8 (`progreso.py`) con cálculo puro de palabras y estadísticas.
+- [x] Arquitectura de persistencia (`datos/repositorio.py`) e integraciones preparadas.
+- [x] Interfaz inicial de Streamlit (`app.py`) con navegación modular.
+- [x] Entorno de contenedorización (`Dockerfile`, `compose.yaml`, `.dockerignore`).
+- [x] Suite de pruebas automatizadas con 100% de cobertura sobre las funciones puras.
 
 ---
 
