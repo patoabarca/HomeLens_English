@@ -65,7 +65,7 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
             app_port = 8501
 
         gemini_api_key = os.getenv("GEMINI_API_KEY")
-        gemini_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash").strip()
+        gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
 
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_anon_key = os.getenv("SUPABASE_ANON_KEY")

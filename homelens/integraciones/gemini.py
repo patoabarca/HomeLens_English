@@ -39,12 +39,16 @@ class AdaptadorGemini:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        modelo: str = "gemini-1.5-flash",
+        modelo: str = "gemini-2.5-flash",
         timeout_segundos: float = 30.0,
         max_reintentos: int = 1,
     ) -> None:
         self.api_key = api_key.strip() if api_key and api_key.strip() else None
-        self.modelo = modelo
+        # Normalizar si viene el modelo antiguo gemini-1.5-flash
+        if modelo in ("gemini-1.5-flash", "models/gemini-1.5-flash"):
+            self.modelo = "gemini-2.5-flash"
+        else:
+            self.modelo = modelo
         self.timeout_segundos = timeout_segundos
         self.max_reintentos = max(0, min(max_reintentos, 3))
         self._configurado = False
