@@ -138,12 +138,40 @@ def renderizar_pantalla_captura(config: Configuracion) -> None:
                     - **Dimensiones:** `{prep.ancho} × {prep.alto} px`
                     - **Tipo MIME:** `{prep.mime_type}`
                     - **Tamaño procesado:** `{len(prep.contenido) / 1024:.1f} KB`
-                    - **Estado:** Lista en memoria para integración con Gemini (Paso 3).
+                    - **Estado:** Lista en memoria para análisis con Gemini.
                     """
                 )
-                st.caption(
-                    "ℹ️ *Nota pedagógica:* En esta etapa no se realizan llamadas a Gemini ni se generan etiquetas simuladas sobre tu imagen."
-                )
+
+                st.divider()
+                st.markdown("### 🤖 Análisis con Gemini (M3)")
+
+                if not config.tiene_gemini:
+                    st.warning("⚠️ Clave `GEMINI_API_KEY` no detectada en `.env`. Para realizar pruebas reales con la API, completa tu clave en `.env`.")
+                else:
+                    st.success(f"🟢 Gemini API configurada (Modelo: `{config.gemini_model}`)")
+
+                if st.button("🔍 Analizar Imagen con Gemini", type="primary", use_container_width=True):
+                    from uuid import uuid4
+                    from homelens.analisis import analizar_exploracion
+
+                    with st.spinner("Enviando imagen a Gemini y analizando objetos educativos..."):
+                        res_analisis = analizar_exploracion(
+                            usuario=st.session_state.usuario,
+                            imagen=st.session_state.imagen_preparada,
+                            operacion_id=uuid4(),
+                        )
+
+                        if res_analisis.ok and res_analisis.valor is not None:
+                            exp = res_analisis.valor
+                            st.session_state.exploracion_actual = exp
+                            st.success(f"🎉 **Análisis completado:** {len(exp.objetos)} objetos detectados (Estado: `{exp.estado.value}`)")
+                            for obj in exp.objetos:
+                                st.markdown(f"• **{obj.nombre_en}** ({obj.nombre_es}) — *\"{obj.frase_en}\"*")
+                            if exp.actividades:
+                                st.markdown(f"**Pregunta generada:** {exp.actividades[0].pregunta}")
+                        else:
+                            err_msg = res_analisis.error.mensaje_usuario if res_analisis.error else "Error desconocido."
+                            st.error(f"❌ Error al analizar: {err_msg}")
 
             elif st.session_state.error_preparacion:
                 st.error(f"❌ {st.session_state.error_preparacion}")
