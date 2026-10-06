@@ -1,19 +1,20 @@
 """Esquemas de validación para las respuestas de modelos de IA (Gemini).
 
 Separados de los modelos del dominio y de persistencia.
+Compatibles con la serialización Schema de google.generativeai (sin 'default', 'minimum', 'maximum').
 """
 
 from __future__ import annotations
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class RecuadroIA(BaseModel):
     """Coordenadas de recuadro retornadas por el modelo (0-1000)."""
-    ymin: int = Field(ge=0, le=1000)
-    xmin: int = Field(ge=0, le=1000)
-    ymax: int = Field(ge=0, le=1000)
-    xmax: int = Field(ge=0, le=1000)
+    ymin: int
+    xmin: int
+    ymax: int
+    xmax: int
 
 
 class ObjetoIA(BaseModel):
@@ -44,13 +45,13 @@ class ActividadIA(BaseModel):
 
 class RespuestaExploracionIA(BaseModel):
     """Estructura completa de respuesta de análisis de imagen."""
-    estado: str = Field(description="UTILIZABLE, SIN_OBJETOS_CLAROS o REPETIR_CAPTURA")
-    objetos: List[ObjetoIA] = Field(default_factory=list)
-    actividades: List[ActividadIA] = Field(default_factory=list)
+    estado: str
+    objetos: List[ObjetoIA]
+    actividades: List[ActividadIA]
 
 
 class RespuestaFindItIA(BaseModel):
     """Estructura de verificación para el desafío Find It."""
-    estado: str = Field(description="ENCONTRADO, NO_ENCONTRADO o INDETERMINABLE")
+    estado: str
     mensaje: str
-    recuadro_encontrado: Optional[RecuadroIA] = None
+    recuadro_encontrado: Optional[RecuadroIA]

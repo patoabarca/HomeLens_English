@@ -213,11 +213,27 @@ class TestAnalisisGemini(unittest.TestCase):
         self.assertIn("límite máximo de 5", resultado.error.mensaje_usuario)
 
     def test_rechazo_coordenadas_fuera_de_rango(self) -> None:
-        """Rechaza coordenadas que exceden el rango [0, 1000] en el esquema de IA."""
-        from pydantic import ValidationError
+        """Rechaza coordenadas que exceden el rango [0, 1000] durante la validación de dominio."""
+        respuesta_ia = RespuestaExploracionIA(
+            estado="UTILIZABLE",
+            objetos=[
+                ObjetoIA(
+                    id_local="obj_1",
+                    nombre_en="chair",
+                    nombre_es="silla",
+                    recuadro=RecuadroIA(ymin=0, xmin=0, ymax=1200, xmax=500),  # ymax > 1000
+                    frase_en="A wooden chair.",
+                    frase_es="Una silla de madera.",
+                )
+            ],
+            actividades=[],
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
 
-        with self.assertRaises(ValidationError):
-            RecuadroIA(ymin=0, xmin=0, ymax=1200, xmax=500)  # ymax > 1000
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("fuera del rango", resultado.error.mensaje_usuario)
 
     def test_rechazo_coordenadas_invertidas_ymin_mayor_igual_ymax(self) -> None:
         """Rechaza recuadros donde ymin >= ymax o xmin >= xmax."""
