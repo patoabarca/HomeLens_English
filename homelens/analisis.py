@@ -121,15 +121,17 @@ def analizar_exploracion(
 
     # 3. Validar y procesar según el estado retornado
     estado_raw = (respuesta_ia.estado or "").strip().upper()
-    try:
-        estado_analisis = EstadoAnalisis(estado_raw)
-    except ValueError:
-        return Resultado.fallo(
-            codigo=CODIGO_RESPUESTA_INVALIDA,
-            mensaje_usuario=f"El estado de análisis retornado ('{estado_raw}') no es reconocido.",
-            reintentable=False,
-            operacion_id=operacion_id,
-        )
+    if estado_raw in ("UTILIZABLE", "SUCCESS", "OK", "COMPLETED", "EXITO", "ENCONTRADO"):
+        estado_analisis = EstadoAnalisis.UTILIZABLE if respuesta_ia.objetos else EstadoAnalisis.SIN_OBJETOS_CLAROS
+    elif estado_raw in ("REPETIR_CAPTURA", "RETRY", "RETAKE", "BORROSA", "BLURRY"):
+        estado_analisis = EstadoAnalisis.REPETIR_CAPTURA
+    elif estado_raw in ("SIN_OBJETOS_CLAROS", "NO_OBJETOS_DETECTADOS", "NO_OBJECTS", "EMPTY", "NINGUNO"):
+        estado_analisis = EstadoAnalisis.SIN_OBJETOS_CLAROS
+    else:
+        try:
+            estado_analisis = EstadoAnalisis(estado_raw)
+        except ValueError:
+            estado_analisis = EstadoAnalisis.UTILIZABLE if respuesta_ia.objetos else EstadoAnalisis.SIN_OBJETOS_CLAROS
 
     exploracion_id = uuid4()
     ahora = datetime.now(timezone.utc)

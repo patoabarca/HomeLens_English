@@ -40,7 +40,7 @@ class AdaptadorGemini:
         self,
         api_key: Optional[str] = None,
         modelo: str = "gemini-2.5-flash",
-        timeout_segundos: float = 30.0,
+        timeout_segundos: float = 60.0,
         max_reintentos: int = 1,
     ) -> None:
         self.api_key = api_key.strip() if api_key and api_key.strip() else None
@@ -63,7 +63,7 @@ class AdaptadorGemini:
         if not GENAI_DISPONIBLE:
             raise RuntimeError("El paquete 'google-generativeai' no está instalado en el entorno.")
         if not self._configurado and self.api_key:
-            genai.configure(api_key=self.api_key)
+            genai.configure(api_key=self.api_key, transport="rest")
             self._configurado = True
 
     def analizar_imagen_exploracion(

@@ -109,6 +109,7 @@ def renderizar_pantalla_captura(config: Configuracion) -> None:
                     resultado = preparar_imagen(
                         contenido=st.session_state.imagen_cargada_bytes,
                         max_bytes=config.max_image_size_bytes,
+                        max_dimension_px=1280,
                     )
 
                     if resultado.ok and resultado.valor is not None:
