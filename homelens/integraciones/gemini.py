@@ -1,7 +1,7 @@
-"""Adaptador para el cliente de Google Gemini (M3).
+"""Adaptador para el cliente de Google Gemini (M3) mediante el SDK oficial google-genai.
 
-Encapsula la configuración, llamada multimodal con salida estructurada,
-manejo controlado de excepciones y telemetría de consumo.
+Encapsula la configuración por instancia, llamada multimodal estructurada,
+manejo controlado de excepciones y telemetría de consumo sin estado global.
 """
 
 from __future__ import annotations
@@ -12,12 +12,13 @@ from typing import Optional, Any
 from uuid import UUID, uuid4
 
 try:
-    import google.generativeai as genai
-    from google.api_core import exceptions as google_exceptions
+    from google import genai
+    from google.genai import types, errors
     GENAI_DISPONIBLE = True
 except ImportError:
     genai = None  # type: ignore
-    google_exceptions = None  # type: ignore
+    types = None  # type: ignore
+    errors = None  # type: ignore
     GENAI_DISPONIBLE = False
 
 from homelens.errores import (
@@ -34,7 +35,7 @@ from homelens.telemetria import registrar_evento
 
 
 class AdaptadorGemini:
-    """Encapsula las llamadas y esquemas hacia la API de Google Gemini."""
+    """Encapsula las llamadas y esquemas hacia la API de Google Gemini usando google-genai."""
 
     def __init__(
         self,
@@ -42,29 +43,33 @@ class AdaptadorGemini:
         modelo: str = "gemini-2.5-flash",
         timeout_segundos: float = 60.0,
         max_reintentos: int = 1,
+        cliente: Optional[Any] = None,
     ) -> None:
         self.api_key = api_key.strip() if api_key and api_key.strip() else None
-        # Normalizar si viene el modelo antiguo gemini-1.5-flash
-        if modelo in ("gemini-1.5-flash", "models/gemini-1.5-flash"):
-            self.modelo = "gemini-2.5-flash"
-        else:
-            self.modelo = modelo
-        self.timeout_segundos = timeout_segundos
+        self.modelo = modelo
+        self.timeout_segundos = max(1.0, float(timeout_segundos))
         self.max_reintentos = max(0, min(max_reintentos, 3))
-        self._configurado = False
+        self._cliente_inyectado = cliente
 
     @property
     def esta_configurado(self) -> bool:
-        """Indica si el adaptador cuenta con credencial válida configurada."""
-        return bool(self.api_key)
+        """Indica si el adaptador cuenta con credencial válida configurada o cliente inyectado."""
+        return bool(self._cliente_inyectado or self.api_key)
 
-    def _asegurar_cliente(self) -> None:
-        """Inicializa la configuración de genai si aún no se realizó."""
+    def _obtener_cliente(self) -> Any:
+        """Obtiene o crea una instancia independiente de genai.Client."""
+        if self._cliente_inyectado is not None:
+            return self._cliente_inyectado
         if not GENAI_DISPONIBLE:
-            raise RuntimeError("El paquete 'google-generativeai' no está instalado en el entorno.")
-        if not self._configurado and self.api_key:
-            genai.configure(api_key=self.api_key, transport="rest")
-            self._configurado = True
+            raise RuntimeError("El paquete 'google-genai' no está instalado en el entorno.")
+        if not self.api_key:
+            raise ValueError("Se requiere una clave API para instanciar el cliente de Gemini.")
+        
+        # Instancia local por sesión sin compartir estado global mutable
+        return genai.Client(
+            api_key=self.api_key,
+            http_options=types.HttpOptions(timeout=int(self.timeout_segundos * 1000)),
+        )
 
     def analizar_imagen_exploracion(
         self,
@@ -79,7 +84,7 @@ class AdaptadorGemini:
             imagen_bytes: Bytes limpios de la imagen preparada.
             mime_type: Tipo MIME ('image/jpeg' o 'image/png').
             instrucciones: Prompt educativo versionado.
-            operacion_id: Identificador único de la operación.
+            operacion_id: Identificador único de trazabilidad.
 
         Returns:
             Resultado[RespuestaExploracionIA]: Respuesta estructurada o error controlado.
@@ -97,13 +102,13 @@ class AdaptadorGemini:
         if not GENAI_DISPONIBLE:
             return Resultado.fallo(
                 codigo=CODIGO_SERVICIO_NO_DISPONIBLE,
-                mensaje_usuario="El componente de integración con Gemini no está disponible en este entorno.",
+                mensaje_usuario="El componente de integración con Gemini (google-genai) no está disponible.",
                 reintentable=False,
                 operacion_id=op_id,
             )
 
         try:
-            self._asegurar_cliente()
+            cliente = self._obtener_cliente()
         except Exception as e:
             return Resultado.fallo(
                 codigo=CODIGO_SERVICIO_NO_DISPONIBLE,
@@ -112,23 +117,23 @@ class AdaptadorGemini:
                 operacion_id=op_id,
             )
 
-        parte_imagen = {
-            "mime_type": mime_type,
-            "data": imagen_bytes,
-        }
-
-        # Configuración de generación con salida estructurada en JSON
-        generation_config = {
-            "temperature": 0.2,
-            "response_mime_type": "application/json",
-            "response_schema": RespuestaExploracionIA,
-        }
-
-        modelo_ia = genai.GenerativeModel(
-            model_name=self.modelo,
-            generation_config=generation_config,
-            system_instruction=instrucciones,
-        )
+        # Preparación de la parte multimodal de imagen y configuración de generación
+        try:
+            parte_imagen = types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type)
+            config_generacion = types.GenerateContentConfig(
+                system_instruction=instrucciones,
+                temperature=0.2,
+                response_mime_type="application/json",
+                response_schema=RespuestaExploracionIA,
+                http_options=types.HttpOptions(timeout=int(self.timeout_segundos * 1000)),
+            )
+        except Exception:
+            return Resultado.fallo(
+                codigo=CODIGO_RESPUESTA_INVALIDA,
+                mensaje_usuario="Error al estructurar la solicitud para Gemini.",
+                reintentable=False,
+                operacion_id=op_id,
+            )
 
         intentos = 0
         reintentos_realizados = 0
@@ -138,16 +143,16 @@ class AdaptadorGemini:
         while intentos <= self.max_reintentos:
             intentos += 1
             try:
-                # Invocación multimodal a la API
-                request_options = {"timeout": self.timeout_segundos}
-                respuesta = modelo_ia.generate_content(
-                    [parte_imagen, "Analyze this image and identify educational objects."],
-                    request_options=request_options,
+                # Invocación multimodal a la API mediante models.generate_content
+                respuesta = cliente.models.generate_content(
+                    model=self.modelo,
+                    contents=[parte_imagen, "Analyze this image and identify educational objects according to instructions."],
+                    config=config_generacion,
                 )
 
                 duracion_ms = int((time.perf_counter() - inicio) * 1000)
 
-                # Extraer metadatos de uso si están disponibles
+                # Extraer metadatos de consumo si están disponibles
                 uso_reportado = None
                 if hasattr(respuesta, "usage_metadata") and respuesta.usage_metadata:
                     try:
@@ -158,6 +163,57 @@ class AdaptadorGemini:
                         }
                     except Exception:
                         uso_reportado = None
+
+                # Validar contenido de respuesta antes de registrar éxito
+                texto_respuesta = getattr(respuesta, "text", None)
+                if not texto_respuesta or not str(texto_respuesta).strip():
+                    # Comprobar si hubo bloqueo o rechazo
+                    bloqueo_mensaje = "La respuesta de Gemini fue bloqueada o vino vacía."
+                    if hasattr(respuesta, "prompt_feedback") and getattr(respuesta.prompt_feedback, "block_reason", None):
+                        bloqueo_mensaje = f"Contenido bloqueado por filtros de seguridad: {respuesta.prompt_feedback.block_reason}"
+
+                    registrar_evento(
+                        EventoTecnico(
+                            operacion_id=op_id,
+                            tipo_operacion="analisis_exploracion_gemini",
+                            fecha=datetime.now(timezone.utc),
+                            duracion_ms=duracion_ms,
+                            estado="ERROR",
+                            numero_llamadas=intentos,
+                            numero_reintentos=reintentos_realizados,
+                            uso_reportado=uso_reportado,
+                        )
+                    )
+
+                    return Resultado.fallo(
+                        codigo=CODIGO_RESPUESTA_INVALIDA,
+                        mensaje_usuario=bloqueo_mensaje,
+                        reintentable=False,
+                        operacion_id=op_id,
+                    )
+
+                # Parsear y validar contra el esquema Pydantic
+                try:
+                    respuesta_ia = RespuestaExploracionIA.model_validate_json(texto_respuesta)
+                except Exception:
+                    registrar_evento(
+                        EventoTecnico(
+                            operacion_id=op_id,
+                            tipo_operacion="analisis_exploracion_gemini",
+                            fecha=datetime.now(timezone.utc),
+                            duracion_ms=duracion_ms,
+                            estado="ERROR",
+                            numero_llamadas=intentos,
+                            numero_reintentos=reintentos_realizados,
+                            uso_reportado=uso_reportado,
+                        )
+                    )
+                    return Resultado.fallo(
+                        codigo=CODIGO_RESPUESTA_INVALIDA,
+                        mensaje_usuario="La respuesta de Gemini no se ajusta al esquema estructurado requerido.",
+                        reintentable=False,
+                        operacion_id=op_id,
+                    )
 
                 # Registrar telemetría exitosa
                 registrar_evento(
@@ -173,43 +229,20 @@ class AdaptadorGemini:
                     )
                 )
 
-                # Validar contenido de respuesta
-                texto_respuesta = respuesta.text if hasattr(respuesta, "text") and respuesta.text else None
-                if not texto_respuesta:
-                    # Comprobar si hubo bloqueo de seguridad
-                    bloqueo_mensaje = "La respuesta de Gemini fue bloqueada o vino vacía."
-                    if hasattr(respuesta, "prompt_feedback") and getattr(respuesta.prompt_feedback, "block_reason", None):
-                        bloqueo_mensaje = f"Contenido bloqueado por filtros del modelo: {respuesta.prompt_feedback.block_reason}"
-
-                    return Resultado.fallo(
-                        codigo=CODIGO_RESPUESTA_INVALIDA,
-                        mensaje_usuario=bloqueo_mensaje,
-                        reintentable=False,
-                        operacion_id=op_id,
-                    )
-
-                # Parsear a través de Pydantic
-                try:
-                    respuesta_ia = RespuestaExploracionIA.model_validate_json(texto_respuesta)
-                    return Resultado.exito(respuesta_ia)
-                except Exception:
-                    return Resultado.fallo(
-                        codigo=CODIGO_RESPUESTA_INVALIDA,
-                        mensaje_usuario="La respuesta de Gemini no se ajusta al esquema estructurado requerido.",
-                        reintentable=False,
-                        operacion_id=op_id,
-                    )
+                return Resultado.exito(respuesta_ia)
 
             except Exception as exc:
                 ultimo_error = exc
-                if google_exceptions:
-                    # Errores permanentes: no reintentar
-                    if isinstance(exc, (google_exceptions.PermissionDenied, google_exceptions.Unauthenticated)):
-                        break
-                    if isinstance(exc, google_exceptions.InvalidArgument):
-                        break
-                    if isinstance(exc, google_exceptions.ResourceExhausted):
-                        break
+
+                # Clasificar si el error es permanente (NO reintentar)
+                es_permanente = False
+                if errors and isinstance(exc, errors.APIError):
+                    # 4xx son errores de cliente/cuota/auth permanentes para este intento
+                    if exc.code in (400, 401, 403, 404, 429):
+                        es_permanente = True
+
+                if es_permanente:
+                    break
 
                 # Si es reintentable y quedan intentos, esperar brevemente
                 if intentos <= self.max_reintentos:
@@ -243,38 +276,48 @@ class AdaptadorGemini:
                 operacion_id=operacion_id,
             )
 
-        if google_exceptions:
-            if isinstance(exc, google_exceptions.ResourceExhausted):
+        if errors and isinstance(exc, errors.APIError):
+            codigo_http = getattr(exc, "code", None)
+            if codigo_http == 429:
                 return Resultado.fallo(
                     codigo=CODIGO_LIMITE_ALCANZADO,
                     mensaje_usuario="Se ha alcanzado la cuota o límite de peticiones a Gemini. Intente más tarde.",
                     reintentable=False,
                     operacion_id=operacion_id,
                 )
-            if isinstance(exc, (google_exceptions.PermissionDenied, google_exceptions.Unauthenticated)):
+            if codigo_http in (401, 403):
                 return Resultado.fallo(
                     codigo=CODIGO_ACCESO_DENEGADO,
                     mensaje_usuario="Credenciales de Gemini inválidas o sin permisos suficientes.",
                     reintentable=False,
                     operacion_id=operacion_id,
                 )
-            if isinstance(exc, (google_exceptions.DeadlineExceeded, TimeoutError)):
+            if codigo_http == 404:
                 return Resultado.fallo(
-                    codigo=CODIGO_TIEMPO_AGOTADO,
-                    mensaje_usuario="Tiempo de espera agotado al consultar el modelo Gemini.",
-                    reintentable=True,
+                    codigo=CODIGO_SERVICIO_NO_DISPONIBLE,
+                    mensaje_usuario=f"El modelo de Gemini '{self.modelo}' no fue encontrado o no está disponible.",
+                    reintentable=False,
                     operacion_id=operacion_id,
                 )
-            if isinstance(exc, google_exceptions.InvalidArgument):
+            if codigo_http == 400:
                 return Resultado.fallo(
                     codigo=CODIGO_RESPUESTA_INVALIDA,
                     mensaje_usuario="Solicitud inválida enviada al modelo Gemini.",
                     reintentable=False,
                     operacion_id=operacion_id,
                 )
+            if codigo_http in (500, 502, 503, 504):
+                return Resultado.fallo(
+                    codigo=CODIGO_SERVICIO_NO_DISPONIBLE,
+                    mensaje_usuario="El servicio de análisis visual con Gemini no está disponible temporalmente.",
+                    reintentable=True,
+                    operacion_id=operacion_id,
+                )
 
         nombre_error = type(exc).__name__.lower()
-        if "timeout" in nombre_error:
+        msg_error = str(exc).lower()
+
+        if "timeout" in nombre_error or "timeout" in msg_error or "deadline" in msg_error:
             return Resultado.fallo(
                 codigo=CODIGO_TIEMPO_AGOTADO,
                 mensaje_usuario="Tiempo de espera agotado al consultar el modelo Gemini.",

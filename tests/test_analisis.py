@@ -1,4 +1,4 @@
-"""Suite de pruebas unitarias para el Módulo M3 (Análisis con Gemini).
+"""Suite de pruebas unitarias para el Módulo M3 (Análisis con Gemini) usando google-genai.
 
 Pruebas 100% aisladas y simuladas (Mocks) que no requieren claves reales ni realizan
 llamadas de red externas.
@@ -8,7 +8,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
-from datetime import datetime, timezone
+
+from google.genai import types, errors
 
 from homelens.analisis import analizar_exploracion, obtener_actividades_publicas
 from homelens.errores import (
@@ -36,7 +37,7 @@ from homelens.modelos import (
 
 
 class TestAnalisisGemini(unittest.TestCase):
-    """Pruebas unitarias de validación y análisis M3."""
+    """Pruebas unitarias de validación, esquema y análisis M3 con google-genai."""
 
     def setUp(self) -> None:
         self.usuario = ContextoUsuario(
@@ -57,8 +58,26 @@ class TestAnalisisGemini(unittest.TestCase):
         adaptador.analizar_imagen_exploracion = MagicMock(return_value=resultado_retornado)  # type: ignore
         return adaptador
 
-    def test_exploracion_valida_con_un_objeto(self) -> None:
-        """Verifica el análisis exitoso con un solo objeto educativo."""
+    # =====================================================================
+    # 1. Pruebas de compatibilidad de esquemas con google-genai
+    # =====================================================================
+
+    def test_construccion_real_del_esquema_con_sdk(self) -> None:
+        """Verifica la serialización de RespuestaExploracionIA en GenerateContentConfig sin red."""
+        config_gen = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=RespuestaExploracionIA,
+            system_instruction="Instrucciones educativas",
+        )
+        self.assertEqual(config_gen.response_mime_type, "application/json")
+        self.assertEqual(config_gen.response_schema, RespuestaExploracionIA)
+
+    # =====================================================================
+    # 2. Pruebas de casos exitosos
+    # =====================================================================
+
+    def test_exploracion_valida_con_un_objeto_y_actividad(self) -> None:
+        """Verifica el análisis exitoso con 1 objeto educativo y 1 actividad."""
         respuesta_ia = RespuestaExploracionIA(
             estado="UTILIZABLE",
             objetos=[
@@ -102,8 +121,8 @@ class TestAnalisisGemini(unittest.TestCase):
         self.assertEqual(exploracion.actividades[0].opcion_correcta_id, "A")
         self.assertEqual(exploracion.user_id, self.usuario.user_id)
 
-    def test_exploracion_valida_con_multiples_objetos(self) -> None:
-        """Verifica el análisis exitoso con 3 objetos y preguntas vinculadas."""
+    def test_exploracion_valida_con_multiples_objetos_y_dos_actividades(self) -> None:
+        """Verifica el análisis exitoso con 3 objetos y 2 actividades."""
         respuesta_ia = RespuestaExploracionIA(
             estado="UTILIZABLE",
             objetos=[
@@ -144,7 +163,19 @@ class TestAnalisisGemini(unittest.TestCase):
                     ],
                     opcion_correcta_id="B",
                     explicacion="'Book' means libro.",
-                )
+                ),
+                ActividadIA(
+                    id_local="act_2",
+                    objetos_relacionados=["obj_2", "obj_3"],
+                    pregunta="Which object gives light?",
+                    opciones=[
+                        OpcionIA(opcion_id="A", texto="The lamp"),
+                        OpcionIA(opcion_id="B", texto="The clock"),
+                        OpcionIA(opcion_id="C", texto="The book"),
+                    ],
+                    opcion_correcta_id="A",
+                    explicacion="The lamp illuminates the room.",
+                ),
             ],
         )
 
@@ -154,6 +185,7 @@ class TestAnalisisGemini(unittest.TestCase):
         self.assertTrue(resultado.ok)
         exploracion = resultado.valor
         self.assertEqual(len(exploracion.objetos), 3)
+        self.assertEqual(len(exploracion.actividades), 2)
         self.assertEqual([o.nombre_en for o in exploracion.objetos], ["book", "lamp", "clock"])
 
     def test_resultado_valido_sin_objetos_claros(self) -> None:
@@ -186,9 +218,222 @@ class TestAnalisisGemini(unittest.TestCase):
         exploracion = resultado.valor
         self.assertEqual(exploracion.estado, EstadoAnalisis.REPETIR_CAPTURA)
         self.assertEqual(len(exploracion.objetos), 0)
+        self.assertEqual(len(exploracion.actividades), 0)
+
+    # =====================================================================
+    # 3. Validación de Estados e Inconsistencias
+    # =====================================================================
+
+    def test_rechazo_estado_desconocido(self) -> None:
+        """Rechaza estados no definidos en el contrato."""
+        respuesta_ia = RespuestaExploracionIA(
+            estado="ESTADO_INVENTADO_123",
+            objetos=[],
+            actividades=[],
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("no es reconocido", resultado.error.mensaje_usuario)
+
+    def test_rechazo_inconsistencia_sin_objetos_con_contenido(self) -> None:
+        """Rechaza estado SIN_OBJETOS_CLAROS si incluye objetos."""
+        respuesta_ia = RespuestaExploracionIA(
+            estado="SIN_OBJETOS_CLAROS",
+            objetos=[
+                ObjetoIA(
+                    id_local="obj_1",
+                    nombre_en="pen",
+                    nombre_es="bolígrafo",
+                    recuadro=RecuadroIA(ymin=10, xmin=10, ymax=100, xmax=100),
+                    frase_en="A pen.",
+                    frase_es="Un bolígrafo.",
+                )
+            ],
+            actividades=[],
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("Inconsistencia", resultado.error.mensaje_usuario)
+
+    def test_rechazo_inconsistencia_repetir_captura_con_actividades(self) -> None:
+        """Rechaza estado REPETIR_CAPTURA si incluye actividades."""
+        respuesta_ia = RespuestaExploracionIA(
+            estado="REPETIR_CAPTURA",
+            objetos=[],
+            actividades=[
+                ActividadIA(
+                    id_local="act_1",
+                    objetos_relacionados=["obj_1"],
+                    pregunta="Q?",
+                    opciones=[
+                        OpcionIA(opcion_id="A", texto="1"),
+                        OpcionIA(opcion_id="B", texto="2"),
+                        OpcionIA(opcion_id="C", texto="3"),
+                    ],
+                    opcion_correcta_id="A",
+                    explicacion="E",
+                )
+            ],
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("Inconsistencia", resultado.error.mensaje_usuario)
+
+    def test_rechazo_utilizable_sin_actividades(self) -> None:
+        """Rechaza estado UTILIZABLE si no devuelve actividades formativas."""
+        respuesta_ia = RespuestaExploracionIA(
+            estado="UTILIZABLE",
+            objetos=[
+                ObjetoIA(
+                    id_local="obj_1",
+                    nombre_en="mug",
+                    nombre_es="taza",
+                    recuadro=RecuadroIA(ymin=10, xmin=10, ymax=100, xmax=100),
+                    frase_en="A mug.",
+                    frase_es="Una taza.",
+                )
+            ],
+            actividades=[],  # Sin actividades
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("actividad formativa", resultado.error.mensaje_usuario)
+
+    def test_rechazo_utilizable_exceso_de_actividades(self) -> None:
+        """Rechaza estado UTILIZABLE con más de 2 actividades (límite del contrato)."""
+        obj = ObjetoIA(
+            id_local="obj_1",
+            nombre_en="mug",
+            nombre_es="taza",
+            recuadro=RecuadroIA(ymin=10, xmin=10, ymax=100, xmax=100),
+            frase_en="A mug.",
+            frase_es="Una taza.",
+        )
+        actividades_excesivas = [
+            ActividadIA(
+                id_local=f"act_{i}",
+                objetos_relacionados=["obj_1"],
+                pregunta=f"Pregunta {i}?",
+                opciones=[
+                    OpcionIA(opcion_id="A", texto=f"Op A {i}"),
+                    OpcionIA(opcion_id="B", texto=f"Op B {i}"),
+                    OpcionIA(opcion_id="C", texto=f"Op C {i}"),
+                ],
+                opcion_correcta_id="A",
+                explicacion=f"Explicacion {i}",
+            )
+            for i in range(3)  # 3 actividades > 2
+        ]
+        respuesta_ia = RespuestaExploracionIA(
+            estado="UTILIZABLE",
+            objetos=[obj],
+            actividades=actividades_excesivas,
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("superando el máximo de 2", resultado.error.mensaje_usuario)
+
+    # =====================================================================
+    # 4. Validación de Objetos e Identificadores Locales
+    # =====================================================================
+
+    def test_rechazo_objeto_con_id_local_vacio(self) -> None:
+        """Rechaza objetos con id_local vacío o solo espacios."""
+        respuesta_ia = RespuestaExploracionIA(
+            estado="UTILIZABLE",
+            objetos=[
+                ObjetoIA(
+                    id_local="   ",
+                    nombre_en="chair",
+                    nombre_es="silla",
+                    recuadro=RecuadroIA(ymin=10, xmin=10, ymax=100, xmax=100),
+                    frase_en="A chair.",
+                    frase_es="Una silla.",
+                )
+            ],
+            actividades=[
+                ActividadIA(
+                    id_local="act_1",
+                    objetos_relacionados=["obj_1"],
+                    pregunta="Q?",
+                    opciones=[
+                        OpcionIA(opcion_id="A", texto="A"),
+                        OpcionIA(opcion_id="B", texto="B"),
+                        OpcionIA(opcion_id="C", texto="C"),
+                    ],
+                    opcion_correcta_id="A",
+                    explicacion="E",
+                )
+            ],
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("identificador local", resultado.error.mensaje_usuario)
+
+    def test_rechazo_objetos_con_id_local_duplicado(self) -> None:
+        """Rechaza objetos con identificadores locales repetidos."""
+        respuesta_ia = RespuestaExploracionIA(
+            estado="UTILIZABLE",
+            objetos=[
+                ObjetoIA(
+                    id_local="obj_1",
+                    nombre_en="chair",
+                    nombre_es="silla",
+                    recuadro=RecuadroIA(ymin=10, xmin=10, ymax=100, xmax=100),
+                    frase_en="A chair.",
+                    frase_es="Una silla.",
+                ),
+                ObjetoIA(
+                    id_local="obj_1",  # Duplicado
+                    nombre_en="table",
+                    nombre_es="mesa",
+                    recuadro=RecuadroIA(ymin=200, xmin=200, ymax=400, xmax=400),
+                    frase_en="A table.",
+                    frase_es="Una mesa.",
+                ),
+            ],
+            actividades=[
+                ActividadIA(
+                    id_local="act_1",
+                    objetos_relacionados=["obj_1"],
+                    pregunta="Q?",
+                    opciones=[
+                        OpcionIA(opcion_id="A", texto="A"),
+                        OpcionIA(opcion_id="B", texto="B"),
+                        OpcionIA(opcion_id="C", texto="C"),
+                    ],
+                    opcion_correcta_id="A",
+                    explicacion="E",
+                )
+            ],
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("duplicado", resultado.error.mensaje_usuario)
 
     def test_rechazo_exceso_de_objetos(self) -> None:
-        """Rechaza respuestas con más de 5 objetos (invariante pedagógico)."""
+        """Rechaza respuestas con más de 5 objetos."""
         objetos_excesivos = [
             ObjetoIA(
                 id_local=f"obj_{i}",
@@ -198,22 +443,38 @@ class TestAnalisisGemini(unittest.TestCase):
                 frase_en=f"Sentence {i}",
                 frase_es=f"Frase {i}",
             )
-            for i in range(6)  # 6 objetos
+            for i in range(6)
         ]
+        actividad = ActividadIA(
+            id_local="act_1",
+            objetos_relacionados=["obj_0"],
+            pregunta="Q?",
+            opciones=[
+                OpcionIA(opcion_id="A", texto="A"),
+                OpcionIA(opcion_id="B", texto="B"),
+                OpcionIA(opcion_id="C", texto="C"),
+            ],
+            opcion_correcta_id="A",
+            explicacion="E",
+        )
         respuesta_ia = RespuestaExploracionIA(
             estado="UTILIZABLE",
             objetos=objetos_excesivos,
-            actividades=[],
+            actividades=[actividad],
         )
         adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
         resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
 
         self.assertFalse(resultado.ok)
         self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
-        self.assertIn("límite máximo de 5", resultado.error.mensaje_usuario)
+        self.assertIn("máximo permitido de 5", resultado.error.mensaje_usuario)
 
-    def test_rechazo_coordenadas_fuera_de_rango(self) -> None:
-        """Rechaza coordenadas que exceden el rango [0, 1000] durante la validación de dominio."""
+    # =====================================================================
+    # 5. Validación de Coordenadas y Tipos
+    # =====================================================================
+
+    def test_rechazo_coordenadas_fuera_de_rango_negativas_o_mayores_1000(self) -> None:
+        """Rechaza coordenadas < 0 o > 1000."""
         respuesta_ia = RespuestaExploracionIA(
             estado="UTILIZABLE",
             objetos=[
@@ -221,12 +482,25 @@ class TestAnalisisGemini(unittest.TestCase):
                     id_local="obj_1",
                     nombre_en="chair",
                     nombre_es="silla",
-                    recuadro=RecuadroIA(ymin=0, xmin=0, ymax=1200, xmax=500),  # ymax > 1000
+                    recuadro=RecuadroIA(ymin=0, xmin=0, ymax=1200, xmax=500),
                     frase_en="A wooden chair.",
                     frase_es="Una silla de madera.",
                 )
             ],
-            actividades=[],
+            actividades=[
+                ActividadIA(
+                    id_local="act_1",
+                    objetos_relacionados=["obj_1"],
+                    pregunta="Q?",
+                    opciones=[
+                        OpcionIA(opcion_id="A", texto="A"),
+                        OpcionIA(opcion_id="B", texto="B"),
+                        OpcionIA(opcion_id="C", texto="C"),
+                    ],
+                    opcion_correcta_id="A",
+                    explicacion="E",
+                )
+            ],
         )
         adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
         resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
@@ -235,8 +509,9 @@ class TestAnalisisGemini(unittest.TestCase):
         self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
         self.assertIn("fuera del rango", resultado.error.mensaje_usuario)
 
-    def test_rechazo_coordenadas_invertidas_ymin_mayor_igual_ymax(self) -> None:
-        """Rechaza recuadros donde ymin >= ymax o xmin >= xmax."""
+    def test_rechazo_coordenadas_invertidas_y_area_nula(self) -> None:
+        """Rechaza recuadros con ymin >= ymax o xmin >= xmax (área nula o invertida)."""
+        # Caso 1: ymin == ymax (área nula vertical)
         respuesta_ia = RespuestaExploracionIA(
             estado="UTILIZABLE",
             objetos=[
@@ -244,12 +519,25 @@ class TestAnalisisGemini(unittest.TestCase):
                     id_local="obj_1",
                     nombre_en="table",
                     nombre_es="mesa",
-                    recuadro=RecuadroIA(ymin=500, xmin=100, ymax=200, xmax=400),  # ymin > ymax
-                    frase_en="A dining table.",
-                    frase_es="Una mesa de comedor.",
+                    recuadro=RecuadroIA(ymin=300, xmin=100, ymax=300, xmax=400),
+                    frase_en="A table.",
+                    frase_es="Una mesa.",
                 )
             ],
-            actividades=[],
+            actividades=[
+                ActividadIA(
+                    id_local="act_1",
+                    objetos_relacionados=["obj_1"],
+                    pregunta="Q?",
+                    opciones=[
+                        OpcionIA(opcion_id="A", texto="A"),
+                        OpcionIA(opcion_id="B", texto="B"),
+                        OpcionIA(opcion_id="C", texto="C"),
+                    ],
+                    opcion_correcta_id="A",
+                    explicacion="E",
+                )
+            ],
         )
         adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
         resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
@@ -258,27 +546,206 @@ class TestAnalisisGemini(unittest.TestCase):
         self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
         self.assertIn("inválidas", resultado.error.mensaje_usuario)
 
-    def test_rechazo_objeto_con_campos_vacios(self) -> None:
-        """Rechaza objetos a los que les faltan nombres o frases requeridas."""
+    def test_rechazo_coordenadas_tipo_booleano(self) -> None:
+        """Rechaza coordenadas con valor booleano True/False."""
+        rec_mock = MagicMock()
+        rec_mock.ymin = True  # booleano
+        rec_mock.xmin = 0
+        rec_mock.ymax = 100
+        rec_mock.xmax = 100
+
+        obj_mock = ObjetoIA(
+            id_local="obj_1",
+            nombre_en="chair",
+            nombre_es="silla",
+            recuadro=RecuadroIA(ymin=0, xmin=0, ymax=100, xmax=100),
+            frase_en="A chair.",
+            frase_es="Una silla.",
+        )
+        obj_mock.recuadro = rec_mock  # type: ignore
+
         respuesta_ia = RespuestaExploracionIA(
             estado="UTILIZABLE",
-            objetos=[
-                ObjetoIA(
-                    id_local="obj_1",
-                    nombre_en="",  # Vacío
-                    nombre_es="silla",
-                    recuadro=RecuadroIA(ymin=10, xmin=10, ymax=100, xmax=100),
-                    frase_en="A chair.",
-                    frase_es="Una silla.",
+            objetos=[obj_mock],
+            actividades=[
+                ActividadIA(
+                    id_local="act_1",
+                    objetos_relacionados=["obj_1"],
+                    pregunta="Q?",
+                    opciones=[
+                        OpcionIA(opcion_id="A", texto="A"),
+                        OpcionIA(opcion_id="B", texto="B"),
+                        OpcionIA(opcion_id="C", texto="C"),
+                    ],
+                    opcion_correcta_id="A",
+                    explicacion="E",
                 )
             ],
-            actividades=[],
         )
         adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
         resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
 
         self.assertFalse(resultado.ok)
         self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("Tipo inválido", resultado.error.mensaje_usuario)
+
+    # =====================================================================
+    # 6. Validación de Actividades y Referencias
+    # =====================================================================
+
+    def test_rechazo_actividad_con_id_local_duplicado(self) -> None:
+        """Rechaza actividades con id_local duplicado."""
+        obj = ObjetoIA(
+            id_local="obj_1",
+            nombre_en="pen",
+            nombre_es="bolígrafo",
+            recuadro=RecuadroIA(ymin=10, xmin=10, ymax=100, xmax=100),
+            frase_en="A pen.",
+            frase_es="Un bolígrafo.",
+        )
+        act1 = ActividadIA(
+            id_local="act_1",
+            objetos_relacionados=["obj_1"],
+            pregunta="Q1?",
+            opciones=[
+                OpcionIA(opcion_id="A", texto="1"),
+                OpcionIA(opcion_id="B", texto="2"),
+                OpcionIA(opcion_id="C", texto="3"),
+            ],
+            opcion_correcta_id="A",
+            explicacion="E1",
+        )
+        act2 = ActividadIA(
+            id_local="act_1",  # Duplicado
+            objetos_relacionados=["obj_1"],
+            pregunta="Q2?",
+            opciones=[
+                OpcionIA(opcion_id="A", texto="4"),
+                OpcionIA(opcion_id="B", texto="5"),
+                OpcionIA(opcion_id="C", texto="6"),
+            ],
+            opcion_correcta_id="A",
+            explicacion="E2",
+        )
+        respuesta_ia = RespuestaExploracionIA(
+            estado="UTILIZABLE",
+            objetos=[obj],
+            actividades=[act1, act2],
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("duplicado", resultado.error.mensaje_usuario)
+
+    def test_rechazo_actividad_sin_referencias_a_objetos(self) -> None:
+        """Rechaza actividades sin referencias y no asocia automáticamente al primer objeto."""
+        respuesta_ia = RespuestaExploracionIA(
+            estado="UTILIZABLE",
+            objetos=[
+                ObjetoIA(
+                    id_local="obj_1",
+                    nombre_en="pen",
+                    nombre_es="bolígrafo",
+                    recuadro=RecuadroIA(ymin=10, xmin=10, ymax=100, xmax=100),
+                    frase_en="A pen.",
+                    frase_es="Un bolígrafo.",
+                )
+            ],
+            actividades=[
+                ActividadIA(
+                    id_local="act_1",
+                    objetos_relacionados=[],  # Sin referencias
+                    pregunta="What is this?",
+                    opciones=[
+                        OpcionIA(opcion_id="A", texto="A pen"),
+                        OpcionIA(opcion_id="B", texto="A book"),
+                        OpcionIA(opcion_id="C", texto="A pencil"),
+                    ],
+                    opcion_correcta_id="A",
+                    explicacion="Explanation",
+                )
+            ],
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("no incluye referencias", resultado.error.mensaje_usuario)
+
+    def test_rechazo_actividad_con_referencias_repetidas(self) -> None:
+        """Rechaza actividades con referencias a objetos duplicadas dentro de la misma lista."""
+        respuesta_ia = RespuestaExploracionIA(
+            estado="UTILIZABLE",
+            objetos=[
+                ObjetoIA(
+                    id_local="obj_1",
+                    nombre_en="pen",
+                    nombre_es="bolígrafo",
+                    recuadro=RecuadroIA(ymin=10, xmin=10, ymax=100, xmax=100),
+                    frase_en="A pen.",
+                    frase_es="Un bolígrafo.",
+                )
+            ],
+            actividades=[
+                ActividadIA(
+                    id_local="act_1",
+                    objetos_relacionados=["obj_1", "obj_1"],  # Repetido
+                    pregunta="What is this?",
+                    opciones=[
+                        OpcionIA(opcion_id="A", texto="A pen"),
+                        OpcionIA(opcion_id="B", texto="A book"),
+                        OpcionIA(opcion_id="C", texto="A pencil"),
+                    ],
+                    opcion_correcta_id="A",
+                    explicacion="Explanation",
+                )
+            ],
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("referencias a objetos repetidas", resultado.error.mensaje_usuario)
+
+    def test_rechazo_referencia_a_objeto_no_existente(self) -> None:
+        """Rechaza actividades que referencian objetos que no fueron devueltos."""
+        respuesta_ia = RespuestaExploracionIA(
+            estado="UTILIZABLE",
+            objetos=[
+                ObjetoIA(
+                    id_local="obj_1",
+                    nombre_en="key",
+                    nombre_es="llave",
+                    recuadro=RecuadroIA(ymin=10, xmin=10, ymax=100, xmax=100),
+                    frase_en="A metal key.",
+                    frase_es="Una llave de metal.",
+                )
+            ],
+            actividades=[
+                ActividadIA(
+                    id_local="act_1",
+                    objetos_relacionados=["obj_fantasma_999"],
+                    pregunta="What is this?",
+                    opciones=[
+                        OpcionIA(opcion_id="A", texto="Key"),
+                        OpcionIA(opcion_id="B", texto="Door"),
+                        OpcionIA(opcion_id="C", texto="Window"),
+                    ],
+                    opcion_correcta_id="A",
+                    explicacion="Explanation",
+                )
+            ],
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("no reconocido", resultado.error.mensaje_usuario)
 
     def test_rechazo_actividad_con_opciones_duplicadas(self) -> None:
         """Rechaza actividades con opciones de texto o ID repetido."""
@@ -352,87 +819,131 @@ class TestAnalisisGemini(unittest.TestCase):
         self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
         self.assertIn("no pertenece a las opciones", resultado.error.mensaje_usuario)
 
-    def test_rechazo_referencia_a_objeto_no_existente(self) -> None:
-        """Rechaza actividades que referencian objetos que no fueron detectados."""
-        respuesta_ia = RespuestaExploracionIA(
-            estado="UTILIZABLE",
-            objetos=[
-                ObjetoIA(
-                    id_local="obj_1",
-                    nombre_en="key",
-                    nombre_es="llave",
-                    recuadro=RecuadroIA(ymin=10, xmin=10, ymax=100, xmax=100),
-                    frase_en="A metal key.",
-                    frase_es="Una llave de metal.",
-                )
-            ],
-            actividades=[
-                ActividadIA(
-                    id_local="act_1",
-                    objetos_relacionados=["obj_fantasma_999"],  # Inexistente
-                    pregunta="What is this?",
-                    opciones=[
-                        OpcionIA(opcion_id="A", texto="Key"),
-                        OpcionIA(opcion_id="B", texto="Door"),
-                        OpcionIA(opcion_id="C", texto="Window"),
-                    ],
-                    opcion_correcta_id="A",
-                    explicacion="Explanation",
-                )
-            ],
-        )
-        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
-        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+    # =====================================================================
+    # 7. Pruebas del AdaptadorGemini con Cliente SDK Simulado
+    # =====================================================================
 
-        self.assertFalse(resultado.ok)
-        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
-        self.assertIn("no reconocido", resultado.error.mensaje_usuario)
+    def test_adaptador_con_cliente_sdk_simulado_exito(self) -> None:
+        """Prueba AdaptadorGemini simulando models.generate_content del SDK."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = '{"estado": "SIN_OBJETOS_CLAROS", "objetos": [], "actividades": []}'
+        mock_response.usage_metadata = MagicMock(prompt_token_count=10, candidates_token_count=20, total_token_count=30)
+        mock_client.models.generate_content.return_value = mock_response
 
-    def test_manejo_error_cuota_alcanzada(self) -> None:
-        """Verifica la propagación controlada del error de límite de cuota (429)."""
-        adaptador = self._crear_adaptador_mock(
-            Resultado.fallo(
-                codigo=CODIGO_LIMITE_ALCANZADO,
-                mensaje_usuario="Se ha alcanzado la cuota de peticiones a Gemini.",
-                reintentable=False,
-                operacion_id=self.operacion_id,
-            )
+        adaptador = AdaptadorGemini(api_key="key-test", cliente=mock_client)
+        resultado = adaptador.analizar_imagen_exploracion(
+            imagen_bytes=self.imagen_prueba.contenido,
+            mime_type=self.imagen_prueba.mime_type,
+            instrucciones="instrucciones",
+            operacion_id=self.operacion_id,
         )
-        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertTrue(resultado.ok)
+        self.assertEqual(resultado.valor.estado, "SIN_OBJETOS_CLAROS")
+        self.assertEqual(mock_client.models.generate_content.call_count, 1)
+
+    def test_adaptador_error_cuota_429(self) -> None:
+        """Verifica que el error 429 de cuota mapea a CODIGO_LIMITE_ALCANZADO y no se reintenta."""
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = errors.APIError(
+            code=429,
+            response_json={"error": {"message": "Resource exhausted", "status": "RESOURCE_EXHAUSTED"}},
+        )
+
+        adaptador = AdaptadorGemini(api_key="key-test", cliente=mock_client, max_reintentos=2)
+        resultado = adaptador.analizar_imagen_exploracion(
+            imagen_bytes=self.imagen_prueba.contenido,
+            mime_type=self.imagen_prueba.mime_type,
+            instrucciones="instrucciones",
+            operacion_id=self.operacion_id,
+        )
 
         self.assertFalse(resultado.ok)
         self.assertEqual(resultado.error.codigo, CODIGO_LIMITE_ALCANZADO)
+        self.assertFalse(resultado.error.reintentable)
+        # 429 es permanente para el intento, no debe reintentar
+        self.assertEqual(mock_client.models.generate_content.call_count, 1)
 
-    def test_manejo_error_tiempo_agotado(self) -> None:
-        """Verifica la propagación de timeout."""
-        adaptador = self._crear_adaptador_mock(
-            Resultado.fallo(
-                codigo=CODIGO_TIEMPO_AGOTADO,
-                mensaje_usuario="Tiempo de espera agotado al consultar Gemini.",
-                reintentable=True,
-                operacion_id=self.operacion_id,
-            )
+    def test_adaptador_error_autenticacion_401(self) -> None:
+        """Verifica que el error 401 mapea a CODIGO_ACCESO_DENEGADO y no se reintenta."""
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = errors.APIError(
+            code=401,
+            response_json={"error": {"message": "Unauthenticated", "status": "UNAUTHENTICATED"}},
         )
-        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        adaptador = AdaptadorGemini(api_key="key-test", cliente=mock_client, max_reintentos=2)
+        resultado = adaptador.analizar_imagen_exploracion(
+            imagen_bytes=self.imagen_prueba.contenido,
+            mime_type=self.imagen_prueba.mime_type,
+            instrucciones="instrucciones",
+            operacion_id=self.operacion_id,
+        )
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_ACCESO_DENEGADO)
+        self.assertFalse(resultado.error.reintentable)
+        self.assertEqual(mock_client.models.generate_content.call_count, 1)
+
+    def test_adaptador_error_transitorio_503_reintenta(self) -> None:
+        """Verifica que un error 503 del servidor es reintentable."""
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = errors.APIError(
+            code=503,
+            response_json={"error": {"message": "Service Unavailable", "status": "UNAVAILABLE"}},
+        )
+
+        adaptador = AdaptadorGemini(api_key="key-test", cliente=mock_client, max_reintentos=1)
+        resultado = adaptador.analizar_imagen_exploracion(
+            imagen_bytes=self.imagen_prueba.contenido,
+            mime_type=self.imagen_prueba.mime_type,
+            instrucciones="instrucciones",
+            operacion_id=self.operacion_id,
+        )
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_SERVICIO_NO_DISPONIBLE)
+        self.assertTrue(resultado.error.reintentable)
+        # 1 intento inicial + 1 reintento = 2 llamadas
+        self.assertEqual(mock_client.models.generate_content.call_count, 2)
+
+    def test_adaptador_error_tiempo_agotado(self) -> None:
+        """Verifica el mapeo de TimeoutError a CODIGO_TIEMPO_AGOTADO."""
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = TimeoutError("Deadline exceeded")
+
+        adaptador = AdaptadorGemini(api_key="key-test", cliente=mock_client, max_reintentos=0)
+        resultado = adaptador.analizar_imagen_exploracion(
+            imagen_bytes=self.imagen_prueba.contenido,
+            mime_type=self.imagen_prueba.mime_type,
+            instrucciones="instrucciones",
+            operacion_id=self.operacion_id,
+        )
 
         self.assertFalse(resultado.ok)
         self.assertEqual(resultado.error.codigo, CODIGO_TIEMPO_AGOTADO)
         self.assertTrue(resultado.error.reintentable)
 
-    def test_manejo_error_servicio_no_disponible(self) -> None:
-        """Verifica la propagación de fallos generales del proveedor."""
-        adaptador = self._crear_adaptador_mock(
-            Resultado.fallo(
-                codigo=CODIGO_SERVICIO_NO_DISPONIBLE,
-                mensaje_usuario="El servicio de análisis con Gemini no está disponible.",
-                reintentable=True,
-                operacion_id=self.operacion_id,
-            )
+    def test_adaptador_respuesta_bloqueada_o_vacia(self) -> None:
+        """Verifica el manejo cuando Gemini devuelve texto vacío o bloqueo de seguridad."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = ""  # Texto vacío
+        mock_response.prompt_feedback = MagicMock(block_reason="SAFETY")
+        mock_client.models.generate_content.return_value = mock_response
+
+        adaptador = AdaptadorGemini(api_key="key-test", cliente=mock_client)
+        resultado = adaptador.analizar_imagen_exploracion(
+            imagen_bytes=self.imagen_prueba.contenido,
+            mime_type=self.imagen_prueba.mime_type,
+            instrucciones="instrucciones",
+            operacion_id=self.operacion_id,
         )
-        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
 
         self.assertFalse(resultado.ok)
-        self.assertEqual(resultado.error.codigo, CODIGO_SERVICIO_NO_DISPONIBLE)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("filtros de seguridad", resultado.error.mensaje_usuario)
 
     def test_adaptador_sin_credenciales_falla_amigablemente(self) -> None:
         """El AdaptadorGemini sin API key retorna fallo controlado sin lanzar excepción."""
@@ -446,6 +957,10 @@ class TestAnalisisGemini(unittest.TestCase):
         self.assertFalse(resultado.ok)
         self.assertEqual(resultado.error.codigo, CODIGO_SERVICIO_NO_DISPONIBLE)
         self.assertIn("GEMINI_API_KEY", resultado.error.mensaje_usuario)
+
+    # =====================================================================
+    # 8. Seguridad y Proyección Pública
+    # =====================================================================
 
     def test_proyeccion_actividades_publicas_no_expone_solucion(self) -> None:
         """Comprueba que ActividadPublica oculta la solución y explicación antes de confirmar."""
@@ -485,7 +1000,6 @@ class TestAnalisisGemini(unittest.TestCase):
         pub = actividades_publicas[0]
         self.assertEqual(pub.pregunta, "What is in the photo?")
         self.assertEqual(len(pub.opciones), 3)
-        # Comprobar que el objeto público no contiene el atributo de opción correcta
         self.assertFalse(hasattr(pub, "opcion_correcta_id"))
         self.assertFalse(hasattr(pub, "explicacion"))
 

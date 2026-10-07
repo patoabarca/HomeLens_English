@@ -171,6 +171,7 @@ def renderizar_pantalla_captura(config: Configuracion) -> None:
                             if exp.actividades:
                                 st.markdown(f"**Pregunta generada:** {exp.actividades[0].pregunta}")
                         else:
+                            st.session_state.exploracion_actual = None
                             err_msg = res_analisis.error.mensaje_usuario if res_analisis.error else "Error desconocido."
                             st.error(f"❌ Error al analizar: {err_msg}")
 

@@ -54,10 +54,12 @@ El módulo **M2** (`homelens/imagenes.py` y `homelens/ui/captura.py`) gestiona l
 
 El módulo **M3** (`homelens/analisis.py`, `homelens/integraciones/gemini.py`, `homelens/esquemas_ia.py` y `homelens/prompts/exploracion.txt`) realiza el reconocimiento multimodal y la generación de contenido educativo mediante una **única llamada principal estructurada**:
 
-### 1. Modelo Seleccionado y Justificación
-- **Modelo:** `gemini-1.5-flash` (configurable mediante la variable `GEMINI_MODEL`).
+### 1. Modelo Seleccionado y Biblioteca Oficial
+- **Biblioteca Oficial:** `google-genai` (v1.29.0+), reemplazando a la biblioteca obsoleta `google-generativeai`.
+- **Modelo:** `gemini-2.5-flash` / `gemini-1.5-flash` (configurable mediante la variable `GEMINI_MODEL`, por defecto `gemini-2.5-flash`).
 - **Verificación oficial:** Soporte nativo de visión multimodal y salida estructurada JSON (`response_schema=RespuestaExploracionIA`).
 - **Ventajas:** Latencia mínima, alta velocidad de inferencia, bajo costo operativo y precisión en la detección de objetos y generación bilingüe (EN/ES) de nivel A1/A2.
+- **Configuración de Resiliencia:** `GEMINI_TIMEOUT_SECONDS` (60.0s provisional) y `GEMINI_MAX_RETRIES` (1 reintento para fallos transitorios 5xx/red exclusivamente).
 
 ### 2. Contrato de Entrada y Salida
 ```python
@@ -69,13 +71,27 @@ analizar_exploracion(
 ) -> Resultado[Exploracion]
 ```
 
-### 3. Principios y Validaciones Estrictas
-- **Una llamada atómica por exploración:** Obtiene en un solo paso el estado del análisis, los objetos detectados (1 a 5), recuadros normalizados `[0, 1000]`, traducciones, frases de ejemplo y cuestionarios interactivos de 3 opciones.
+### 3. Principios y Validaciones Estrictas Endurecidas
+- **Una llamada atómica por exploración:** Obtiene en un solo paso el estado del análisis, los objetos detectados (1 a 5), recuadros normalizados `[0, 1000]`, traducciones, frases de ejemplo y cuestionarios interactivos de 3 opciones (1 a 2 actividades).
 - **Defensa contra Prompt Injection:** El prompt explicita que la imagen y cualquier texto visible en ella son contenido a analizar y no instrucciones de control.
-- **Validación geométrica exhaustiva:** Exige `0 <= ymin, xmin, ymax, xmax <= 1000`, `ymin < ymax` y `xmin < xmax`.
-- **Integridad de actividades:** Verifica exactamente 3 opciones distintas por pregunta, existencia obligatoria de la opción correcta y correspondencia de referencias cruzadas entre preguntas y objetos.
+- **Validación exhaustiva de estados y coherencia:**
+  - Solo se aceptan los estados previstos (`UTILIZABLE`, `SIN_OBJETOS_CLAROS`, `REPETIR_CAPTURA`). Cualquier otro estado produce `CODIGO_RESPUESTA_INVALIDA`.
+  - `UTILIZABLE` exige entre 1 y 5 objetos y entre 1 y 2 actividades pedagógicas.
+  - `SIN_OBJETOS_CLAROS` y `REPETIR_CAPTURA` exigen listas vacías de objetos y actividades. Se rechazan combinaciones inconsistentes.
+- **Validación de identificadores:** Exige `id_local` no vacío y estrictamente único dentro de la respuesta para objetos y actividades (no se inventan identificadores).
+- **Validación geométrica exhaustiva:**
+  - Exige coordenadas enteras normalizadas (`0 <= ymin, xmin, ymax, xmax <= 1000`).
+  - Rechaza tipos booleanos o no enteros (`type(coord) is not bool and isinstance(coord, int)`).
+  - Exige `ymin < ymax` y `xmin < xmax` (rechazando recuadros invertidos o de área nula).
+  - *Nota:* La validación geométrica garantiza coherencia numérica y estructural, pero no garantiza por sí sola la precisión visual o semántica del modelo.
+- **Integridad y referencias de actividades:**
+  - Cada actividad debe referenciar al menos un `id_local` de objeto devuelto en la misma respuesta.
+  - Se rechazan referencias a objetos inexistentes o referencias duplicadas dentro de la misma actividad (se eliminó cualquier asociación automática fallback al primer objeto).
+  - Exige exactamente 3 opciones por actividad, con identificadores y textos únicos y no vacíos.
+  - La opción correcta (`opcion_correcta_id`) debe pertenecer obligatoriamente a las 3 opciones provistas.
+- **Aclaración sobre visualización de recuadros:** La renderización interactiva y visual de los recuadros delimitadores sobre la fotografía en pantalla corresponde a la **Tarea 6**. La imagen preparada se mantiene en memoria en la sesión para permitir dicha visualización posterior.
 - **Mapeo a entidades inmutables:** Traduce identificadores locales de IA a `UUID` inmutables del dominio, asignando la autoría al `ContextoUsuario`.
-- **Manejo diferenciado de errores:** Clasifica errores de cuota (`429 / LIMITE_ALCANZADO`), credenciales (`401/403 / ACCESO_DENEGADO`), tiempos de espera (`TIEMPO_AGOTADO`), respuestas bloqueadas/inválidas (`RESPUESTA_INVALIDA`) y fallos temporales de red (`SERVICIO_NO_DISPONIBLE`), sin exponer secretos.
+- **Manejo diferenciado de errores:** Clasifica errores de cuota (`429 / LIMITE_ALCANZADO`), credenciales (`401/403 / ACCESO_DENEGADO`), tiempos de espera (`TIEMPO_AGOTADO`), respuestas bloqueadas/inválidas (`RESPUESTA_INVALIDA`) y fallos temporales de red (`SERVICIO_NO_DISPONIBLE`), sin exponer secretos ni registrar imágenes.
 - **Telemetría no bloqueante:** Registra duración en milisegundos, reintentos y tokens utilizados vía `homelens/telemetria.py`.
 
 ---
@@ -89,7 +105,7 @@ HomeLens_English/
 ├── .dockerignore               # Exclusión de archivos sensibles en build de contenedor
 ├── Dockerfile                  # Contenedorización de la aplicación (Python 3.11-slim)
 ├── compose.yaml                # Orquestación de Docker Compose para Streamlit
-├── pyproject.toml              # Metadatos del paquete y dependencias
+├── pyproject.toml              # Metadatos del paquete y dependencias (google-genai>=1.29.0)
 ├── requirements.txt            # Dependencias fijadas para instalación directa
 ├── README.md                   # Documentación principal del sistema
 ├── app.py                      # Punto de entrada de Streamlit y coordinación
@@ -116,7 +132,7 @@ HomeLens_English/
 │   ├── integraciones/          # Adaptadores externos
 │   │   ├── __init__.py
 │   │   ├── autenticacion.py    # Proveedor de autenticación
-│   │   ├── gemini.py           # M3: Adaptador del SDK de Google Gemini
+│   │   ├── gemini.py           # M3: Adaptador del SDK google-genai
 │   │   └── tts.py              # Cliente Google Cloud TTS
 │   │
 │   ├── prompts/                # Plantillas versionadas de prompts
@@ -133,7 +149,7 @@ HomeLens_English/
     ├── test_modelos.py         # Invariantes y entidades del dominio
     ├── test_config.py          # Validación segura de entorno M0
     ├── test_imagenes.py        # Cobertura exhaustiva de validación M2
-    ├── test_analisis.py        # Cobertura exhaustiva de validación y simulación M3
+    ├── test_analisis.py        # Cobertura exhaustiva de validación, esquemas y simulación M3
     ├── test_exploracion.py     # Proyecciones de pantalla y tarjetas M4
     └── test_progreso.py        # Lógica pura de cálculo de progreso M8
 ```
@@ -222,7 +238,7 @@ Abre en tu navegador: [http://localhost:8501](http://localhost:8501).
 
 ## 🧪 Pruebas Automatizadas vs. Verificación Manual
 
-### Pruebas Automatizadas Unitarias (43 tests - 100% aisladas)
+### Pruebas Automatizadas Unitarias (57 tests - 100% aisladas)
 Ejecuta la suite con:
 ```bash
 python -m unittest discover -s tests -v
@@ -233,28 +249,35 @@ pytest -v
 ```
 
 **Cobertura automatizada (sin consumo de API ni credenciales):**
-- ✅ **M0 Configuración:** Carga segura y defaults.
+- ✅ **M0 Configuración:** Carga segura, defaults, timeout y reintentos.
 - ✅ **M2 Captura e Imágenes:** Validación JPEG/PNG, límites de tamaño, orientación EXIF, canales alfa, coherencia de dimensiones y liberación de recursos.
-- ✅ **M3 Análisis Gemini (Simulado):**
-  - Análisis exitoso con 1 y múltiples objetos educativos.
-  - Resultados válidos de estados `SIN_OBJETOS_CLAROS` y `REPETIR_CAPTURA`.
-  - Rechazo estricto de exceso de objetos (> 5).
-  - Rechazo de coordenadas fuera de rango (`> 1000` o `< 0`).
-  - Rechazo de coordenadas invertidas (`ymin >= ymax` o `xmin >= xmax`).
-  - Rechazo de campos faltantes o vacíos (nombres, frases).
-  - Rechazo de preguntas con opciones duplicadas o solución no existente.
-  - Rechazo de referencias a objetos inexistentes.
-  - Manejo controlado de errores de cuota (429), timeout, credenciales inválidas (401/403) y caídas de servicio (503).
-  - Comportamiento seguro de `AdaptadorGemini` sin credenciales.
+- ✅ **M3 Análisis Gemini (Simulado & Esquemas):**
+  - Construcción y validación del esquema Pydantic nativo con el SDK `google-genai` sin llamadas de red.
+  - Análisis exitoso con 1 y múltiples objetos educativos (1 a 5).
+  - Resultados válidos de estados `SIN_OBJETOS_CLAROS` y `REPETIR_CAPTURA` sin contenido.
+  - Rechazo estricto de estados desconocidos e inconsistencias (ej. `SIN_OBJETOS_CLAROS` con objetos, o `UTILIZABLE` sin objetos).
+  - Rechazo estricto de identificadores `id_local` de objetos y actividades vacíos o duplicados (sin fallbacks inventados).
+  - Rechazo de coordenadas fuera de rango (`> 1000` o `< 0`), invertidas (`ymin >= ymax`, `xmin >= xmax`), de área nula o tipos booleanos/no enteros.
+  - Rechazo de exploraciones utilizables sin actividades (exige 1 a 2 actividades).
+  - Rechazo de actividades sin referencias a objetos, referencias duplicadas o referencias a objetos inexistentes (sin asignación automática al primer objeto).
+  - Rechazo de preguntas con opciones insuficientes/excesivas (exige exactamente 3) o solución no existente en las opciones.
+  - Manejo controlado de respuestas vacías, bloqueadas por seguridad, truncadas o con JSON inválido.
+  - Manejo controlado y mapeo de errores del SDK (cuota 429, timeout, credenciales inválidas 401/403, 400 y caídas transitorias de servicio 5xx).
+  - Verificación de reintentos: solo ante errores transitorios 5xx/red, nunca ante credenciales o esquemas inválidos.
+  - Comportamiento seguro de `AdaptadorGemini` sin credenciales y con cliente simulado (`mock_client`).
   - Ocultamiento de soluciones en `obtener_actividades_publicas`.
 - ✅ **M4 Exploración y M8 Progreso:** Invariantes de dominio, cálculos puros de estadísticas y tarjetas.
 
 ### Prueba Manual en Vivo con Gemini (Acción Explícita)
-1. Coloca tu clave en `.env`: `GEMINI_API_KEY=AIzaSy...`
-2. Inicia la aplicación con `streamlit run app.py`.
-3. Navega a **Exploración Visual**, carga una imagen o toma una fotografía y presiona **"⚙️ Preparar Imagen"**.
-4. Haz clic en el botón explícito **"🔍 Analizar Imagen con Gemini"**.
-5. Se enviará la imagen transitoria y se listarán los objetos educativos y preguntas generadas.
+1. Configura tu clave en `.env`: `GEMINI_API_KEY=tu_api_key_aqui`
+2. Opcionalmente ajusta el modelo en `.env`: `GEMINI_MODEL=gemini-2.5-flash`
+3. Inicia la aplicación con `streamlit run app.py` (o activa la pestaña activa de Streamlit en `http://localhost:8501`).
+4. En el panel de **Exploración Visual**, toma una foto con la cámara o carga un archivo JPG/PNG.
+5. Presiona **"⚙️ Preparar Imagen"** para que el módulo M2 procese la imagen en memoria.
+6. Haz clic en el botón **"🔍 Analizar Imagen con Gemini"**.
+7. Verifica que la respuesta muestre los objetos detectados (en inglés y español con frase contextual) y el cuestionario interactivo de 3 opciones.
+8. Si se produce un error o la imagen no contiene objetos claros, comprueba que se muestre un mensaje amigable y que no se mantenga un resultado anterior desactualizado.
+*(Nota: La superposición gráfica de los recuadros visuales sobre la imagen se incorporará en la Tarea 6).*
 
 ---
 
@@ -270,17 +293,17 @@ En el modo demostración (sin credenciales externas configuradas):
 
 ## 📋 Estado de Implementación
 
-- [x] Repositorio Git local y sincronización remota.
+- [x] Repositorio Git local y sincronización remota en rama `HLE_Pato`.
 - [x] Exclusión de credenciales asegurada con `.gitignore` previo y `.env.example`.
 - [x] Modelos de dominio compartidos (`homelens/modelos.py`) con validaciones e invariantes.
 - [x] Sistema de manejo de errores controlado (`homelens/errores.py`) con `Resultado[T]`.
 - [x] Módulo M0 (`config.py`, `telemetria.py`) para arranque seguro de la aplicación.
 - [x] Módulo M2 (`imagenes.py`, `ui/captura.py`) con validación y orientación de imágenes.
-- [x] Módulo M3 (`analisis.py`, `integraciones/gemini.py`, `esquemas_ia.py`, `prompts/exploracion.txt`) con llamada multimodal estructurada y validación exhaustiva.
+- [x] Módulo M3 (`analisis.py`, `integraciones/gemini.py`, `esquemas_ia.py`, `prompts/exploracion.txt`) migrado a `google-genai` con validación estricta endurecida.
 - [x] Módulo M4 (`exploracion.py`) con funciones puras para recuadros en pantalla.
 - [x] Módulo M8 (`progreso.py`) con cálculo puro de palabras y estadísticas.
 - [x] Entorno de contenedorización (`Dockerfile`, `compose.yaml`, `.dockerignore`).
-- [x] Suite de 43 pruebas automatizadas con 100% de éxito.
+- [x] Suite de 57 pruebas automatizadas con 100% de éxito.
 
 ---
 

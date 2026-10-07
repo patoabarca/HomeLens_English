@@ -22,6 +22,8 @@ class Configuracion:
     app_port: int
     gemini_api_key: Optional[str]
     gemini_model: str
+    gemini_timeout_seconds: float
+    gemini_max_retries: int
     supabase_url: Optional[str]
     supabase_anon_key: Optional[str]
     supabase_service_role_key: Optional[str]
@@ -58,7 +60,7 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
         app_env = os.getenv("APP_ENV", "development").strip().lower()
         debug = os.getenv("DEBUG", "true").strip().lower() in ("true", "1", "yes")
         log_level = os.getenv("LOG_LEVEL", "INFO").strip().upper()
-        
+
         try:
             app_port = int(os.getenv("APP_PORT", "8501"))
         except ValueError:
@@ -66,6 +68,16 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
 
         gemini_api_key = os.getenv("GEMINI_API_KEY")
         gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+
+        try:
+            gemini_timeout_seconds = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "60.0"))
+        except ValueError:
+            gemini_timeout_seconds = 60.0
+
+        try:
+            gemini_max_retries = int(os.getenv("GEMINI_MAX_RETRIES", "1"))
+        except ValueError:
+            gemini_max_retries = 1
 
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_anon_key = os.getenv("SUPABASE_ANON_KEY")
@@ -96,6 +108,8 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
             app_port=app_port,
             gemini_api_key=gemini_api_key,
             gemini_model=gemini_model,
+            gemini_timeout_seconds=gemini_timeout_seconds,
+            gemini_max_retries=gemini_max_retries,
             supabase_url=supabase_url,
             supabase_anon_key=supabase_anon_key,
             supabase_service_role_key=supabase_service_role_key,
