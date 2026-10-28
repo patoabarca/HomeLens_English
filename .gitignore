@@ -1,5 +1,6 @@
 # Entornos virtuales y dependencias
 .venv/
+.venv-evaluacion/
 venv/
 env/
 __pycache__/
@@ -33,4 +34,8 @@ Thumbs.db
 temp/
 tmp/
 *.log
+
+# Dataset A1: no subir imágenes ni cachés de evaluación por defecto
+/data/evaluacion/imagenes/
+*.fiftyone/
 

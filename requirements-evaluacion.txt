@@ -1,0 +1,3 @@
+# Dependencias exclusivas de A1. No forman parte de la aplicación M0-M8.
+fiftyone>=1.8.0
+Pillow>=10.3.0

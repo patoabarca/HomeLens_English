@@ -1,0 +1,22 @@
+Chair
+Table
+Couch
+Bed
+Desk
+Refrigerator
+Microwave oven
+Sink
+Mug
+Toilet
+Mirror
+Towel
+Book
+Laptop
+Computer keyboard
+Computer monitor
+Lamp
+Clock
+Plant
+Television
+Bottle
+Washing machine
