@@ -84,19 +84,15 @@ def renderizar_pantalla_acceso(config: Configuracion) -> None:
             # Opción secundaria: Modo demostración local (exclusivo para desarrollo)
             if config.permitir_demo_local:
                 st.divider()
-                with st.expander("🧪 Modo Demostración Local (Solo Desarrollo)", expanded=False):
-                    st.info(
-                        "Este modo permite a los evaluadores y desarrolladores probar la aplicación localmente "
-                        "sin credenciales de Supabase. No constituye una sesión personal real."
-                    )
-                    if st.button("🧪 Entrar como Usuario Demo", use_container_width=True):
-                        res_demo = iniciar_acceso_demo(config=config)
-                        if res_demo.ok and res_demo.valor:
-                            st.session_state.usuario = res_demo.valor
-                            st.session_state.mensaje_auth = "Sesión de demostración local iniciada."
-                            st.rerun()
-                        else:
-                            st.error(res_demo.error.mensaje_usuario if res_demo.error else "Error en modo demo.")
+                st.caption("🧪 **Acceso de evaluación para desarrollo local:**")
+                if st.button("👤 Ingresar en Modo Demo", use_container_width=True, help="Prueba las funcionalidades sin cuenta de Google"):
+                    res_demo = iniciar_acceso_demo(config=config)
+                    if res_demo.ok and res_demo.valor:
+                        st.session_state.usuario = res_demo.valor
+                        st.session_state.mensaje_auth = "Sesión de demostración local iniciada."
+                        st.rerun()
+                    else:
+                        st.error(res_demo.error.mensaje_usuario if res_demo.error else "Error en modo demo.")
 
     # 3. Avisos sobre privacidad y tratamiento seguro
     st.markdown("<br>", unsafe_allow_html=True)
