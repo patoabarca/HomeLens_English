@@ -178,6 +178,12 @@ class TestEstadoUI(unittest.TestCase):
             from homelens.ui.exploracion import mostrar_exploracion
             from homelens.ui.estado import inicializar_estado_sesion
 
+            # Fallback a radio en AppTest
+            if hasattr(st, "segmented_control"):
+                delattr(st, "segmented_control")
+            if hasattr(st, "pills"):
+                delattr(st, "pills")
+
             inicializar_estado_sesion()
 
             img = Image.new("RGB", (400, 400), (200, 200, 200))
@@ -211,16 +217,19 @@ class TestEstadoUI(unittest.TestCase):
 
         # 3. Cambiar opción desde el selector superior
         widget = None
-        if at.segmented_control:
+        if hasattr(at, "segmented_control") and at.segmented_control:
             widget = at.segmented_control[0]
-        elif at.pills:
+        elif hasattr(at, "pills") and at.pills:
             widget = at.pills[0]
-        elif at.radio:
+        elif hasattr(at, "radio") and at.radio:
             widget = at.radio[0]
 
         self.assertIsNotNone(widget, "No se encontró widget selector")
         opc_1 = next(o for o in widget.options if "#1" in o)
-        widget.select(opc_1).run()
+        if hasattr(widget, "set_value"):
+            widget.set_value(opc_1).run()
+        else:
+            widget.select(opc_1).run()
         self.assertEqual(len(at.exception), 0, "Excepción al seleccionar desde widget superior")
         self.assertEqual(str(at.session_state.objeto_seleccionado_id), "00000000-0000-0000-0000-000000000001")
 

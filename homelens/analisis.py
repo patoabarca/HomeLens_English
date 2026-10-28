@@ -17,6 +17,8 @@ from homelens.errores import (
     CODIGO_RESPUESTA_INVALIDA,
     CODIGO_SERVICIO_NO_DISPONIBLE,
     CODIGO_IMAGEN_INVALIDA,
+    CODIGO_SESION_REQUERIDA,
+    CODIGO_ACCESO_DENEGADO,
 )
 from homelens.esquemas_ia import RespuestaExploracionIA
 from homelens.integraciones.gemini import AdaptadorGemini
@@ -78,6 +80,20 @@ def analizar_exploracion(
     Returns:
         Resultado[Exploracion]: Exploración validada con objetos y actividades, o error controlado.
     """
+    # 0. Validar sesión y contexto de usuario activo (RNF04 / Parte 5)
+    if (
+        usuario is None
+        or not isinstance(usuario, ContextoUsuario)
+        or usuario.user_id is None
+        or not usuario.sesion_id
+    ):
+        return Resultado.fallo(
+            codigo=CODIGO_SESION_REQUERIDA,
+            mensaje_usuario="Se requiere una sesión de usuario activa y verificada para analizar imágenes.",
+            reintentable=False,
+            operacion_id=operacion_id,
+        )
+
     if not imagen or not imagen.contenido:
         return Resultado.fallo(
             codigo=CODIGO_IMAGEN_INVALIDA,

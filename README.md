@@ -7,7 +7,7 @@ Asistente educativo inteligente para el aprendizaje contextual del idioma inglé
 ## 📌 Repositorio y Entorno
 - **Repositorio Remoto:** [https://github.com/patoabarca/HomeLens_English](https://github.com/patoabarca/HomeLens_English)
 - **Tipo de Repositorio:** Privado
-- **Rama Actual:** `HLE_Pato` (Parte 4: Análisis con Gemini & Integración M3)
+- **Rama Actual:** `main` (Integración M1 a M4: Autenticación Supabase/Google y Exploración Visual con Gemini)
 
 ---
 
@@ -18,14 +18,48 @@ El sistema implementa una arquitectura modular con contratos estrictos y bajo ac
 | Módulo | Nombre | Responsabilidad |
 | :--- | :--- | :--- |
 | **M0** | **Configuración y Entorno** | Carga segura de variables de entorno sin exposición de credenciales y registro de eventos técnicos (`config.py`, `telemetria.py`). |
-| **M1** | **Acceso de Usuarios** | Gestión de contexto de identidad de usuario y control de sesión (`acceso.py`). |
+| **M1** | **Acceso de Usuarios** | Autenticación real con Google OAuth 2.0 vía Supabase Auth, flujo PKCE con protección CSRF, sesiones verificadas, identidad estable inmutable (`ContextoUsuario`) y bloqueo de operaciones protegidas (`acceso.py`, `integraciones/autenticacion.py`, `ui/acceso.py`). |
 | **M2** | **Captura y Preparación** | Validación de formatos reales (JPEG/PNG), límites de tamaño, corrección EXIF y gestión en memoria sin persistencia de fotos (`imagenes.py`, `ui/captura.py`). |
 | **M3** | **Análisis con Gemini** | Detección multimodal de objetos, normalización geométrica `[ymin, xmin, ymax, xmax]`, esquemas estructurados y generación de actividades formativas (`analisis.py`, `integraciones/gemini.py`). |
-| **M4** | **Exploración y Contenido** | Adaptación de coordenadas a la pantalla y generación de tarjetas pedagógicas (`exploracion.py`). |
+| **M4** | **Exploración y Contenido** | Adaptación de coordenadas a la pantalla y generación de tarjetas pedagógicas (`exploracion.py`, `ui/exploracion.py`). |
 | **M5** | **Audio y Pronunciación** | Síntesis de voz con Google Cloud TTS y caché temporal de sesión (`audio.py`). |
 | **M6** | **Prácticas y Find It** | Evaluación local de cuestionarios y verificación de desafíos (`practicas.py`). |
 | **M7** | **Persistencia e Historial** | Contratos de persistencia atómica y aislamiento de datos por usuario (`datos/repositorio.py`). |
 | **M8** | **Progreso y Analítica** | Consolidación y cálculo del estado de vocabulario aprendido (`progreso.py`). |
+
+---
+
+## 🔐 M1: Acceso de Usuarios y Autenticación con Google (Parte 5)
+
+El módulo **M1** (`homelens/acceso.py`, `homelens/integraciones/autenticacion.py` y `homelens/ui/acceso.py`) implementa un sistema de autenticación real y seguro con **Google OAuth 2.0 a través de Supabase Auth**, garantizando la identidad del usuario y protegiendo todas las operaciones pedagógicas y de análisis de la aplicación:
+
+### 1. Flujo OAuth 2.0 con PKCE y Protección CSRF
+- **Inicio de sesión:** Al pulsar el botón **"Continuar con Google"**, el adaptador genera un par criptográfico PKCE (`code_verifier` y `code_challenge` con SHA-256) y un parámetro de estado criptográfico de alta entropía (`state`, 32 bytes) para mitigar ataques CSRF.
+- **Redirección controlada:** Se construye la URL de autorización de Supabase (`sign_in_with_oauth`) configurando a Google como proveedor externo y `AUTH_REDIRECT_URL` como URL de retorno autorizada.
+- **Retorno e intercambio seguro:** Google redirige al usuario a la aplicación con los parámetros de consulta `?code=...&state=...`. La aplicación valida que el `state` coincida con el generado previamente, recupera el `code_verifier` asociado y ejecuta el intercambio del código por tokens de sesión (`exchange_code_for_session`).
+- **Saneamiento inmediato de URL:** Tras procesar el código o detectar errores, los parámetros de consulta (`st.query_params`) se limpian inmediatamente de la barra de direcciones del navegador para evitar la fuga de credenciales o códigos sensibles en el historial o cabeceras `Referer`.
+
+### 2. Identidad Estable y Verificada (`ContextoUsuario`)
+- **Identificador inmutable:** La identidad del usuario se deriva directamente del `user.id` persistente provisto por Supabase Auth (UUID v4 inmutable por cuenta de Google).
+- **Contrato de dominio:** Se construye `ContextoUsuario(user_id=UUID, sesion_id=str, email=..., nombre=...)`, garantizando que el mismo usuario siempre mantenga su identidad a lo largo de recargas y futuras consultas.
+- **Sin manipulación externa:** La identidad no puede ser falsificada mediante parámetros de consulta o encabezados modificables desde el navegador del cliente.
+
+### 3. Verificación Activa y Control de Operaciones Protegidas
+- **Protección a nivel de dominio:** Operaciones protegidas como `analizar_exploracion` en `homelens/analisis.py` validan activamente la presencia y legitimidad del `ContextoUsuario`. Si el usuario no está autenticado o la identidad no es válida, la ejecución se rechaza inmediatamente con `CODIGO_SESION_REQUERIDA`.
+- **Protección a nivel de interfaz:** Si no existe una sesión válida, Streamlit bloquea la navegación, oculta los paneles de exploración/captura y muestra exclusivamente la pantalla de acceso.
+- **Renovación automática:** Durante las recargas, se comprueba la validez del token de acceso (`get_user`). Si ha expirado, se intenta la renovación segura con el refresh token (`refresh_session`). Si la sesión fue revocada o expiró definitivamente, se bloquea el acceso con `CODIGO_SESION_EXPIRADA`.
+
+### 4. Cierre de Sesión Seguro y Limpieza Profunda
+El botón **"Cerrar sesión"** (disponible en la barra lateral y perfiles) ejecuta una invalidación integral:
+1. **Revocación remota:** Invoca `auth.sign_out()` en Supabase para invalidar la sesión activa del proveedor.
+2. **Eliminación de referencias locales:** Borra tokens, credenciales y el `ContextoUsuario` de la memoria del servidor.
+3. **Liberación de imágenes y datos temporales:** Ejecuta `limpiar_datos_exploracion()` y `liberar_imagen()`, liberando buffers de fotos, recuadros en pantalla y selecciones.
+4. **Invalidación de widgets de UI:** Incrementa los identificadores de versión de widgets (`uploader_key`, `camera_key`) para descartar archivos cargados en el DOM del navegador.
+5. **Redirección inmediata:** Reinicia el ciclo de ejecución de Streamlit redirigiendo a la pantalla de bienvenida y login.
+
+### 5. Separación Estricta entre Modo Real y Demostración Local
+- **Sin fallback silencioso:** Ante fallos de conexión, indisponibilidad de Supabase o credenciales erróneas, el sistema **nunca** conmuta silenciosamente a un usuario simulado. Informa el error de forma clara (`CODIGO_PROVEEDOR_AUTH_ERROR`).
+- **Demostración explícita:** El modo demo (`ALLOW_DEMO_LOGIN=true` y `AUTH_REQUIRED=false`) está claramente señalizado (`es_demo=True`), limitado a entornos de desarrollo y no permite acceso a cuentas reales ni datos privados ajenos.
 
 ---
 
@@ -142,15 +176,20 @@ HomeLens_English/
 │   └── ui/                     # Componentes y estado de interfaz Streamlit
 │       ├── __init__.py
 │       ├── estado.py           # Estado de sesión y ciclo de vida de imágenes
-│       └── captura.py          # M2/M3: Pantalla de captura y prueba manual
+│       ├── acceso.py           # M1: Pantalla y controles de autenticación Google / Demo
+│       ├── captura.py          # M2/M3: Pantalla de captura y prueba manual
+│       └── exploracion.py      # M4: Visualización de recuadros y tarjetas pedagógicas
 │
 └── tests/                      # Suite de pruebas automatizadas
     ├── __init__.py
+    ├── test_acceso.py          # Cobertura exhaustiva de autenticación y seguridad M1
+    ├── test_ui_acceso.py       # Pruebas de integración de UI con AppTest (M1)
     ├── test_modelos.py         # Invariantes y entidades del dominio
     ├── test_config.py          # Validación segura de entorno M0
     ├── test_imagenes.py        # Cobertura exhaustiva de validación M2
     ├── test_analisis.py        # Cobertura exhaustiva de validación, esquemas y simulación M3
     ├── test_exploracion.py     # Proyecciones de pantalla y tarjetas M4
+    ├── test_estado_ui.py       # Estado de interfaz y transiciones M4
     └── test_progreso.py        # Lógica pura de cálculo de progreso M8
 ```
 
@@ -238,18 +277,30 @@ Abre en tu navegador: [http://localhost:8501](http://localhost:8501).
 
 ## 🧪 Pruebas Automatizadas vs. Verificación Manual
 
-### Pruebas Automatizadas Unitarias (57 tests - 100% aisladas)
+### Pruebas Automatizadas Unitarias (82 tests - 100% aisladas)
 Ejecuta la suite con:
 ```bash
 python -m unittest discover -s tests -v
 ```
 o con pytest:
 ```bash
-pytest -v
+python -m pytest -v
 ```
 
-**Cobertura automatizada (sin consumo de API ni credenciales):**
+**Cobertura automatizada (sin consumo de API ni credenciales externas):**
 - ✅ **M0 Configuración:** Carga segura, defaults, timeout y reintentos.
+- ✅ **M1 Acceso y Autenticación con Google (12 tests unitarios y de UI):**
+  - **Bloqueo sin sesión:** Operaciones protegidas (`analizar_exploracion`) y pantallas principales bloqueadas con `CODIGO_SESION_REQUERIDA` si el usuario no está autenticado.
+  - **Acceso autorizado:** Verificación de firma/tokens y emisión de `ContextoUsuario` completo.
+  - **Identidad estable:** El identificador `user_id: UUID` permanece idéntico en recargas y nuevas consultas para la misma cuenta.
+  - **Sesión expirada o revocada:** Manejo controlado con `CODIGO_SESION_EXPIRADA` forzando reingreso sin exponer excepciones.
+  - **Cierre de sesión integral:** Revocación remota, eliminación de credenciales locales, liberación de imágenes en memoria (`liberar_imagen`), descarte de exploraciones y reseteo de widgets.
+  - **Error del proveedor:** Captura de respuestas de error OAuth con mensajes comprensibles y sin accesos espurios (`CODIGO_PROVEEDOR_AUTH_ERROR`).
+  - **Ausencia de configuración:** Comportamiento seguro sin conmutación silenciosa a sesiones falsas cuando `AUTH_REQUIRED=true`.
+  - **Aislamiento en cambio de usuario:** El ingreso de un segundo usuario descarta completamente los datos y recuadros del anterior.
+  - **Protección CSRF y manipulación:** Rechazo estricto de parámetros de estado inválidos, códigos reutilizados o identidades adulteradas.
+  - **Intercambio PKCE:** Generación y validación de `code_verifier` y `code_challenge`.
+  - **Integración de UI con AppTest:** Verificación de bloqueo de rutas, renderizado de botón Google y flujo interactivo de cierre de sesión.
 - ✅ **M2 Captura e Imágenes:** Validación JPEG/PNG, límites de tamaño, orientación EXIF, canales alfa, coherencia de dimensiones y liberación de recursos.
 - ✅ **M3 Análisis Gemini (Simulado & Esquemas):**
   - Construcción y validación del esquema Pydantic nativo con el SDK `google-genai` sin llamadas de red.
@@ -272,9 +323,89 @@ pytest -v
   - **Selección e interactividad:** Destacado visual del objeto seleccionado (mayor grosor, relleno translúcido y acento en tarjeta) y opción para visualizar todos los objetos, sin llamadas adicionales al modelo ni desajustes por redimensionado.
   - **Tarjetas pedagógicas claras:** Vocabulario (inglés/español) y frases contextuales para nivel inicial, sin exponer UUIDs, metadatos internos ni detalles del proveedor.
   - **Gestión y coherencia de estado:** Persistencia de resultados tras reruns de Streamlit, vinculación estricta entre la imagen activa y la exploración, e invalidación automática al descartar o cambiar la imagen.
-  - **Limpieza centralizada para Tarea 5:** Función reutilizable `limpiar_datos_exploracion()` preparada para la integración de cierre de sesión, expiración y cambio de usuario por parte de Lucas.
+  - **Limpieza centralizada para Tarea 5:** Función reutilizable `limpiar_datos_exploracion()` integrada con el cierre de sesión, expiración y cambio de usuario de Lucas.
   - **Aclaración evaluativa (M9):** Los recuadros visualizados corresponden a la localización estimada por Gemini multimodal; su precisión real debe ser objeto de auditoría visual en el anexo de evaluación M9.
 - ✅ **M8 Progreso:** Invariantes de dominio, cálculos puros de estadísticas y tarjetas.
+
+---
+
+## ⚙️ Guía de Configuración: Supabase Auth y Google OAuth
+
+Para utilizar la autenticación real en entornos de desarrollo y producción:
+
+### 1. Configurar Credenciales en Google Cloud Console
+1. Accede a [Google Cloud Console](https://console.cloud.google.com/) y crea un proyecto (o selecciona uno existente).
+2. Dirígete a **APIs & Services** > **OAuth consent screen**:
+   - Tipo de usuario: **External**.
+   - Completa el nombre de la app (*HomeLens English*), correo de soporte y datos de contacto.
+   - En **Scopes**, añade `.../auth/userinfo.email` y `.../auth/userinfo.profile`.
+3. Ve a **Credentials** > **Create Credentials** > **OAuth client ID**:
+   - Application type: **Web application**.
+   - Name: *HomeLens English Supabase Auth*.
+   - En **Authorized redirect URIs**, agrega la URL provista por Supabase:
+     ```text
+     https://<TU-PROJECT-REF>.supabase.co/auth/v1/callback
+     ```
+4. Guarda el **Client ID** y el **Client Secret** generados.
+
+### 2. Configurar el Proveedor en el Panel de Supabase
+1. Ingresa a tu proyecto en [Supabase Dashboard](https://supabase.com/dashboard).
+2. Ve a **Authentication** > **Providers** > **Google**:
+   - Activa el interruptor **Enable Google provider**.
+   - Pega el **Client ID** y **Client Secret** obtenidos de Google Cloud.
+   - Guarda los cambios.
+3. Ve a **Authentication** > **URL Configuration**:
+   - En **Site URL**, define la URL base de tu aplicación: `http://localhost:8501` (o tu dominio de producción).
+   - En **Redirect URLs**, añade:
+     ```text
+     http://localhost:8501
+     http://localhost:8501/
+     ```
+
+### 3. Configurar `.env` Local
+En tu archivo `.env` local, define:
+```env
+# Supabase Auth
+SUPABASE_URL=https://<TU-PROJECT-REF>.supabase.co
+SUPABASE_KEY=<TU_SUPABASE_ANON_KEY>
+AUTH_REDIRECT_URL=http://localhost:8501
+AUTH_REQUIRED=true
+ALLOW_DEMO_LOGIN=false
+```
+> ⚠️ **Seguridad:** Usa únicamente la clave **anon / public**. Nunca configures `SUPABASE_SERVICE_ROLE_KEY` en la aplicación cliente.
+
+---
+
+## 👥 Procedimiento de Validación Manual con Dos Cuentas de Google
+
+Una vez configuradas las credenciales de Supabase y Google, sigue estos pasos para verificar el flujo de extremo a extremo:
+
+1. **Ingreso con Cuenta A:**
+   - Inicia la aplicación con `streamlit run app.py`.
+   - Se presentará la pantalla de bienvenida con el botón **"Continuar con Google"**.
+   - Haz clic en el botón. Serás redirigido a la pantalla de consentimiento de Google.
+   - Selecciona la **Cuenta A** de Google y autoriza el acceso.
+   - Serás redirigido a `http://localhost:8501`. La URL se limpiará automáticamente.
+   - Comprueba que en la barra lateral se visualice el nombre y correo de la Cuenta A, y el estado `🟢 Conectado con Google`.
+2. **Operación protegida con Cuenta A:**
+   - En la sección **Exploración Visual**, carga una fotografía y presiona **Preparar Imagen**.
+   - Presiona **Analizar Fotografía con IA**. La exploración se completará vinculada a la Cuenta A.
+3. **Persistencia tras recarga:**
+   - Recarga la página en el navegador (`F5` o `Ctrl+R`).
+   - Verifica que la sesión se mantenga activa sin solicitar reautenticación y que los datos en memoria sigan accesibles.
+4. **Cierre de sesión:**
+   - Pulsa **"Cerrar sesión"** en la barra lateral.
+   - Comprueba que la sesión se cierre inmediatamente, las fotos y recuadros desaparezcan y se regrese a la pantalla de acceso.
+5. **Ingreso con Cuenta B:**
+   - Haz clic nuevamente en **"Continuar con Google"**.
+   - Selecciona una segunda cuenta de Google diferente (**Cuenta B**).
+   - Verifica que la aplicación muestre la nueva identidad (nombre, correo y UUID distinto).
+   - **Comprobación de aislamiento:** Verifica que no quede ningún rastro, foto o recuadro perteneciente a la Cuenta A.
+6. **Validación de expiración:**
+   - Revoca la sesión desde el panel de Supabase o simula un token caducado.
+   - Al recargar, comprueba que la aplicación muestre el mensaje `Tu sesión ha expirado. Por favor, ingresa nuevamente` y bloquee el acceso a la exploración.
+
+---
 
 ### Prueba Manual en Vivo con Gemini (Acción Explícita)
 1. Configura tu clave en `.env`: `GEMINI_API_KEY=tu_api_key_aqui`
@@ -290,28 +421,28 @@ pytest -v
 
 ## 💡 Funcionamiento del Modo Demostración
 
-En el modo demostración (sin credenciales externas configuradas):
-- ✅ **Carga segura de configuración:** El sistema inicializa valores por defecto seguros y reporta el estado de cada servicio en la barra lateral sin fallar (`👤 Modo Demo (Sin autenticar)`).
-- ✅ **Captura y preparación M2:** Admite subir archivos o usar la cámara, previsualizar, corregir orientación y preparar la imagen en memoria.
-- ✅ **Aviso informativo en M3:** Al intentar analizar sin clave en `.env`, informa de manera limpia que se requiere configurar `GEMINI_API_KEY`.
-- 🟡 **Servicios protegidos:** Supabase y TTS muestran estado pendiente de forma informativa y limpia.
+En el modo demostración (`ALLOW_DEMO_LOGIN=true` y `AUTH_REQUIRED=false`):
+- ✅ **Carga segura de configuración:** El sistema reporta el estado de cada servicio en la barra lateral sin fallar.
+- ✅ **Acceso simulado explícito:** Se ofrece un botón secundario claramente diferenciado (`👤 Ingresar en Modo Demo`) que genera un contexto de prueba (`es_demo=True`).
+- 🛑 **Sin conmutación silenciosa:** Si `AUTH_REQUIRED=true` y falla Supabase, el acceso se bloquea con un error informativo sin pasar a demo.
+- 🟡 **Persistencia separada:** Las pruebas demo no se mezclan con usuarios reales.
 
 ---
 
 ## 📋 Estado de Implementación
 
-- [x] Repositorio Git local y sincronización remota en rama `HLE_Pato`.
+- [x] Repositorio Git local y sincronización remota en rama `main`.
 - [x] Exclusión de credenciales asegurada con `.gitignore` previo y `.env.example`.
 - [x] Modelos de dominio compartidos (`homelens/modelos.py`) con validaciones e invariantes.
 - [x] Sistema de manejo de errores controlado (`homelens/errores.py`) con `Resultado[T]`.
 - [x] Módulo M0 (`config.py`, `telemetria.py`) para arranque seguro de la aplicación.
-- [x] Módulo M1 (`acceso.py`) con identidad de demostración identificada y base para Tarea 5.
+- [x] Módulo M1 (`acceso.py`, `integraciones/autenticacion.py`, `ui/acceso.py`) con autenticación Google OAuth real vía Supabase Auth, flujo PKCE, protección CSRF y bloqueo de operaciones protegidas (Parte 5).
 - [x] Módulo M2 (`imagenes.py`, `ui/captura.py`) con validación y orientación de imágenes.
 - [x] Módulo M3 (`analisis.py`, `integraciones/gemini.py`, `esquemas_ia.py`, `prompts/exploracion.txt`) migrado a `google-genai` con validación estricta.
 - [x] Módulo M4 (`exploracion.py`, `ui/exploracion.py`) con recuadros visuales sobre fotografía, selección interactiva y tarjetas pedagógicas (Tarea 6).
 - [x] Módulo M8 (`progreso.py`) con cálculo puro de palabras y estadísticas.
 - [x] Entorno de contenedorización (`Dockerfile`, `compose.yaml`, `.dockerignore`).
-- [x] Suite de 69 pruebas automatizadas con 100% de éxito.
+- [x] Suite de 82 pruebas automatizadas con 100% de éxito.
 
 ---
 
