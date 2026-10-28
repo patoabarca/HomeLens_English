@@ -12,6 +12,11 @@ from homelens.errores import Resultado
 from homelens.modelos import ContextoUsuario
 
 
+from pathlib import Path
+
+RUTA_APP = str(Path(__file__).resolve().parent.parent / "app.py")
+
+
 class TestUIAcceso(unittest.TestCase):
     """Pruebas interactivas con AppTest para autenticación en app.py."""
 
@@ -24,7 +29,7 @@ class TestUIAcceso(unittest.TestCase):
 
     def test_app_sin_autenticar_muestra_pantalla_acceso_y_bloquea_rutas(self) -> None:
         """Verifica que sin sesión activa, la app muestre la pantalla de acceso y bloquee navegación."""
-        at = AppTest.from_file("app.py", default_timeout=15)
+        at = AppTest.from_file(RUTA_APP, default_timeout=15)
         at.run()
 
         self.assertEqual(len(at.exception), 0, "Fallo al renderizar app sin autenticar")
@@ -48,7 +53,7 @@ class TestUIAcceso(unittest.TestCase):
         )
 
         with patch("homelens.acceso.obtener_usuario_actual", return_value=Resultado.exito(usuario_valido)):
-            at = AppTest.from_file("app.py", default_timeout=15)
+            at = AppTest.from_file(RUTA_APP, default_timeout=15)
             at.session_state.usuario = usuario_valido
             at.run()
 
