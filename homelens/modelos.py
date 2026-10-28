@@ -21,6 +21,44 @@ class ContextoUsuario:
     """Representa la identidad comprobada del usuario en el servidor."""
     user_id: UUID
     sesion_id: str
+    email: Optional[str] = None
+    nombre: Optional[str] = None
+    es_demo: bool = False
+
+
+@dataclass(frozen=True)
+class SolicitudAcceso:
+    """Parámetros para iniciar el flujo de autenticación con el proveedor."""
+    url_autorizacion: str
+    proveedor: str
+    state: str
+    code_verifier: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class RespuestaAcceso:
+    """Datos retornados por el proveedor tras la redirección OAuth."""
+    code: Optional[str] = None
+    state: Optional[str] = None
+    error: Optional[str] = None
+    error_description: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SesionUsuario:
+    """Detalles de sesión y credenciales temporales activas en el servidor."""
+    contexto: ContextoUsuario
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    expira_en_timestamp: Optional[int] = None
+    iniciada_en: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @property
+    def ha_expirado(self) -> bool:
+        if self.expira_en_timestamp is None:
+            return False
+        ahora_ts = int(datetime.now(timezone.utc).timestamp())
+        return ahora_ts >= self.expira_en_timestamp
 
 
 # =====================================================================

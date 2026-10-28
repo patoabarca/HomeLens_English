@@ -32,6 +32,9 @@ class Configuracion:
     max_image_size_bytes: int
     audio_cache_ttl_seconds: int
     rate_limit_exploraciones_por_minuto: int
+    auth_redirect_url: str = "http://localhost:8501"
+    auth_requerida: bool = True
+    permitir_demo_local: bool = False
 
     @property
     def tiene_gemini(self) -> bool:
@@ -101,6 +104,13 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
         except ValueError:
             rate_limit_exploraciones_por_minuto = 10
 
+        auth_redirect_url = os.getenv("AUTH_REDIRECT_URL", f"http://localhost:{app_port}").strip()
+        auth_requerida = os.getenv("AUTH_REQUIRED", "true").strip().lower() in ("true", "1", "yes")
+        permitir_demo_local = (
+            app_env == "development"
+            and os.getenv("ALLOW_DEMO_LOGIN", "false").strip().lower() in ("true", "1", "yes")
+        )
+
         config = Configuracion(
             app_env=app_env,
             debug=debug,
@@ -118,6 +128,9 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
             max_image_size_bytes=max_image_size_bytes,
             audio_cache_ttl_seconds=audio_cache_ttl_seconds,
             rate_limit_exploraciones_por_minuto=rate_limit_exploraciones_por_minuto,
+            auth_redirect_url=auth_redirect_url,
+            auth_requerida=auth_requerida,
+            permitir_demo_local=permitir_demo_local,
         )
 
         return Resultado.exito(config)

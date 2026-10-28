@@ -43,6 +43,12 @@ def inicializar_estado_sesion() -> None:
         st.session_state.uploader_version = 0
     if "camera_version" not in st.session_state:
         st.session_state.camera_version = 0
+    if "error_auth" not in st.session_state:
+        st.session_state.error_auth = None
+    if "mensaje_auth" not in st.session_state:
+        st.session_state.mensaje_auth = None
+    if "seccion_navegacion" not in st.session_state:
+        st.session_state.seccion_navegacion = "Inicio / Estado"
 
 
 def limpiar_datos_exploracion() -> None:
@@ -102,3 +108,25 @@ def descartar_imagen_actual() -> None:
 def limpiar_estado_sesion() -> None:
     """Limpia todos los datos temporales de la sesión actual."""
     descartar_imagen_actual()
+
+
+def cerrar_sesion_usuario(config: Optional[Any] = None) -> None:
+    """Cierra la sesión activa del usuario, invalida tokens y limpia datos temporales."""
+    usuario_actual = st.session_state.get("usuario")
+    sesion_id = usuario_actual.sesion_id if usuario_actual else None
+
+    from homelens.acceso import cerrar_sesion as ejecutar_cerrar_sesion
+    ejecutar_cerrar_sesion(sesion_id=sesion_id, config=config)
+
+    # Limpiar todos los datos de imagen, exploración y selecciones
+    limpiar_datos_exploracion()
+
+    # Descartar referencias al usuario
+    st.session_state.usuario = None
+    st.session_state.error_auth = None
+    st.session_state.mensaje_auth = "Has cerrado sesión correctamente. Tus datos temporales fueron descartados."
+    st.session_state.seccion_navegacion = "Inicio / Estado"
+
+    # Forzar reinicio de widgets de entrada
+    st.session_state.uploader_version = st.session_state.get("uploader_version", 0) + 1
+    st.session_state.camera_version = st.session_state.get("camera_version", 0) + 1
