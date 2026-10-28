@@ -279,3 +279,90 @@ La imagen se conserva temporalmente para visualizar la exploración activa y se 
 | 6 Progreso y evaluación | M8 y pruebas de calidad, privacidad, compatibilidad, tiempos y consumo. |
 
 El entorno con Docker y los contratos se preparan primero. La prueba temprana de autenticación y persistencia permitirá confirmar las tecnologías propuestas antes de ampliar las funcionalidades.
+
+
+---
+
+## M9 (módulo anexo) Evaluación académica, dataset y reproducibilidad
+
+**Actualización del 20 de octubre de 2026.** Este módulo es un **anexo metodológico** a la especificación M0–M8: no reemplaza ni modifica los módulos funcionales, sus contratos, las historias de usuario ni los requisitos de la aplicación. Reúne tareas necesarias para evaluar HomeLens English como trabajo final de la Diplomatura en IA. Su trabajo se realiza en paralelo al desarrollo de las partes 5 a 15.
+
+**Objetivo:** construir un proceso verificable y reproducible para seleccionar imágenes, ejecutar experimentos comparativos con Gemini, medir la calidad y el rendimiento de HomeLens y documentar los resultados para la entrega académica.
+
+**Distinción fundamental:** HomeLens **no entrena ni ajusta los pesos de Gemini** para aprender un conjunto cerrado de objetos. Utiliza un modelo multimodal previamente entrenado. Las fotografías constituyen un **dataset de evaluación** de reconocimiento, ubicación y generación educativa; las mejoras que se estudien se refieren al diseño de prompts, el esquema de salida, las validaciones y la integración. La comparación de prompts no equivale a entrenamiento de modelos. Esta estrategia deberá consultarse con el docente si exige específicamente entrenamiento propio.
+
+### M9.1 Dataset de evaluación (A1)
+
+**Fuente propuesta:** un único dataset público, **Open Images V7**. Se seleccionarán fotografías reales de objetos y, en lo posible, escenas domésticas de distintas características. Las categorías de Open Images se utilizarán para **buscar y organizar imágenes**, no como límite del vocabulario que Gemini puede reconocer.
+
+**Procedimiento planificado:**
+
+1. Establecer criterios de selección y buscar aproximadamente **200 fotografías candidatas**, sujetas a disponibilidad y condiciones de uso del dataset.
+2. Revisar su pertinencia, diversidad, calidad, autorizaciones/licencias y anotaciones antes de seleccionar un **objetivo de 120 fotografías**.
+3. Reservar **20 fotografías para desarrollo/piloto** y **100 para evaluación final**. Evitar que fotografías repetidas, casi idénticas o de una misma escena estén en ambos conjuntos.
+4. Documentar ambientes, objetos observables, complejidad, iluminación, presencia de objetos parcialmente ocultos, identificadores, referencias de procedencia y anotaciones disponibles.
+5. Auditar manualmente las etiquetas y los recuadros utilizados como referencia: que un objeto no aparezca anotado no demuestra que esté ausente de la fotografía. No se considerarán errores automáticamente las omisiones de objetos secundarios cuando la aplicación selecciona hasta cinco.
+6. Conservar un registro de descartes y de las decisiones de selección. Si el objetivo de distribución no puede alcanzarse con las imágenes admisibles, justificar el tamaño y la composición final en lugar de forzar ejemplos inadecuados.
+
+**Privacidad y licencias:** el repositorio público no incluirá por defecto los archivos de imágenes; conservará metadatos sin información personal, referencias e instrucciones reproducibles de obtención. Antes de reproducir o redistribuir imágenes se comprobarán las condiciones de licencia/atribución de cada caso. Las fotografías de las personas usuarias de HomeLens no forman parte del dataset académico.
+
+### M9.2 Diseño experimental y comparación (A2)
+
+**Alternativas propuestas:**
+
+- **A — Baseline:** Gemini con instrucciones sencillas de reconocimiento y generación educativa, con una salida normalizada para poder comparar los resultados.
+- **B — HomeLens:** el **mismo modelo** con instrucciones pedagógicas especializadas, salida estructurada y validaciones del sistema.
+
+Se compararán las alternativas con las mismas imágenes reservadas, el modelo y versión identificados y parámetros de generación comparables. Se registrarán las diferencias de prompt y esquema; la calidad semántica del modelo se medirá por separado de las respuestas rechazadas por las validaciones de la aplicación. El piloto se utilizará para definir criterios y corregir las instrucciones; después se congelarán las configuraciones para la evaluación final. No se usará el conjunto final para iterar el prompt.
+
+**Control operativo:** estimar cuota y costo antes de ejecutar. Comparar dos configuraciones en 100 fotografías supone al menos **200 llamadas de análisis** si se hace una llamada por imagen y alternativa, sin contar piloto, repeticiones, fallos ni reintentos. Los ensayos reales no se consideran hechos hasta ejecutarlos y guardar evidencia.
+
+### M9.3 Métricas, análisis de errores y reporte (A3)
+
+**Dimensiones mínimas previstas:**
+
+| Dimensión | Qué se registrará |
+| --- | --- |
+| Reconocimiento | Precisión de los objetos *mostrados* (presencia y nombre correctos), resultados vacíos y capturas para repetir. |
+| Localización | Revisión visual de recuadros frente a referencias verificadas; IoU solo donde la anotación sea adecuada. |
+| Calidad educativa | Corrección de traducciones, naturalidad y adecuación del inglés básico; coherencia de ejemplos. |
+| Cuestionarios | Tres opciones distintas, respuesta correcta inequívoca y explicación consistente. |
+| Robustez | Errores por condiciones de imagen, rechazos estructurales, fallos de servicio y casos inciertos. |
+| Eficiencia | Tiempo de respuesta, tokens informados, reintentos, llamadas y costo estimado bajo supuestos explícitos. |
+| Find it (cuando esté implementado) | Encontrado / no encontrado / indeterminable, con referencia manual y análisis de falsos positivos y negativos. |
+
+Los resultados se desagregarán por ambiente y dificultad cuando el tamaño de muestra lo permita. No se presentarán porcentajes de confianza inventados por el modelo. La evaluación humana tendrá criterios y registro de quién revisó cada caso; se conservarán desacuerdos y decisiones finales. Las pruebas unitarias de esquema y estructura se informarán **separadamente** de las métricas empíricas de reconocimiento.
+
+### M9.4 Documentación y reproducibilidad (A4)
+
+**Entregables del anexo:** protocolo de selección y evaluación, manifiesto del dataset, scripts/notebooks de experimentación, prompts y configuración versionados, resultados tabulados, gráficos, análisis de errores, decisiones importantes, informe académico breve y evidencias de demostración.
+
+**Ubicación sugerida, sujeta a acuerdo del equipo (no indica carpetas ya creadas):**
+
+```text
+HomeLens_English/
+├── data/
+│   └── evaluacion/
+│       └── metadata.csv         # identificadores y anotaciones, sin fotos privadas
+├── experiments/
+│   └── comparar_gemini.py       # experimento independiente de la app
+└── docs/
+    ├── evaluacion/
+    │   ├── protocolo.md
+    │   ├── resultados.md
+    │   └── graficos/
+    ├── decisiones.md
+    └── informe_final.md
+```
+
+**Entradas:** imágenes seleccionadas y sus anotaciones auditadas, versiones de M2/M3, prompts versionados, parámetros del modelo y criterios de revisión.
+
+**Salidas:** datos de evaluación reproducibles, resultados comparativos, métricas, evidencia de errores y documentación de la defensa.
+
+**Dependencias:** reutiliza M0 (configuración y telemetría), M2 (preparación de imágenes) y M3 (análisis); incorpora pruebas de M4, M5, M6, M7 y M8 cuando estén implementados. **No es una dependencia obligatoria de ejecución** de la aplicación para el usuario final.
+
+**Verificación:** otra persona puede identificar el origen y la selección de imágenes, reproducir las condiciones experimentales hasta donde lo permitan las APIs y licencias, comprender las métricas y revisar resultados y límites sin acceder a claves ni datos sensibles.
+
+**Relación con requisitos y entregas:** no se crean códigos HU/RF/RNF nuevos ni se considera satisfecho ningún requisito funcional por existir este anexo. Los aportes se consolidarán en la **parte 15, Evaluación y entrega**. La asignación individual de actividades A1–A4 figura en el anexo de **Distribución del trabajo por entregas**.
+
+**Estado al crear este anexo:** planificación de M9; el dataset seleccionado, los experimentos, sus métricas y el informe todavía **no se consideran ejecutados ni validados**.

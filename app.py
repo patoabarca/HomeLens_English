@@ -49,6 +49,8 @@ def main() -> None:
 
         st.divider()
         st.subheader("Estado de Integraciones")
+        st.write(f"• **Usuario:** `👤 Modo Demo (Sin autenticar)`")
+        st.caption("*(Autenticación personal pendiente — Tarea 5 Lucas)*")
         st.write(f"• **Entorno:** `{config.app_env}`")
         st.write(f"• **Gemini API:** {'🟢 Configurado' if config.tiene_gemini else '🟡 Pendiente (.env)'}")
         st.write(f"• **Supabase:** {'🟢 Configurado' if config.tiene_supabase else '🟡 Pendiente (.env)'}")

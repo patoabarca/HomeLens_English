@@ -266,25 +266,32 @@ pytest -v
   - Verificación de reintentos: solo ante errores transitorios 5xx/red, nunca ante credenciales o esquemas inválidos.
   - Comportamiento seguro de `AdaptadorGemini` sin credenciales y con cliente simulado (`mock_client`).
   - Ocultamiento de soluciones en `obtener_actividades_publicas`.
-- ✅ **M4 Exploración y M8 Progreso:** Invariantes de dominio, cálculos puros de estadísticas y tarjetas.
+- ✅ **M4 Exploración y Contenido (Tarea 6):**
+  - **Conversión geométrica exacta:** Normalización en escala 0–1000 mapeada a los píxeles reales de la imagen orientada (`izquierda = xmin/1000 * ancho`, `arriba = ymin/1000 * alto`, etc.).
+  - **Superposición gráfica in-memory (Pillow):** Dibujado de recuadros con paleta accesible de alto contraste y etiquetas numéricas legibles (`#1`, `#2`...) que respetan los márgenes visibles de la pantalla.
+  - **Selección e interactividad:** Destacado visual del objeto seleccionado (mayor grosor, relleno translúcido y acento en tarjeta) y opción para visualizar todos los objetos, sin llamadas adicionales al modelo ni desajustes por redimensionado.
+  - **Tarjetas pedagógicas claras:** Vocabulario (inglés/español) y frases contextuales para nivel inicial, sin exponer UUIDs, metadatos internos ni detalles del proveedor.
+  - **Gestión y coherencia de estado:** Persistencia de resultados tras reruns de Streamlit, vinculación estricta entre la imagen activa y la exploración, e invalidación automática al descartar o cambiar la imagen.
+  - **Limpieza centralizada para Tarea 5:** Función reutilizable `limpiar_datos_exploracion()` preparada para la integración de cierre de sesión, expiración y cambio de usuario por parte de Lucas.
+  - **Aclaración evaluativa (M9):** Los recuadros visualizados corresponden a la localización estimada por Gemini multimodal; su precisión real debe ser objeto de auditoría visual en el anexo de evaluación M9.
+- ✅ **M8 Progreso:** Invariantes de dominio, cálculos puros de estadísticas y tarjetas.
 
 ### Prueba Manual en Vivo con Gemini (Acción Explícita)
 1. Configura tu clave en `.env`: `GEMINI_API_KEY=tu_api_key_aqui`
 2. Opcionalmente ajusta el modelo en `.env`: `GEMINI_MODEL=gemini-2.5-flash`
-3. Inicia la aplicación con `streamlit run app.py` (o activa la pestaña activa de Streamlit en `http://localhost:8501`).
+3. Inicia la aplicación con `streamlit run app.py` (o abre `http://localhost:8501`).
 4. En el panel de **Exploración Visual**, toma una foto con la cámara o carga un archivo JPG/PNG.
 5. Presiona **"⚙️ Preparar Imagen"** para que el módulo M2 procese la imagen en memoria.
-6. Haz clic en el botón **"🔍 Analizar Imagen con Gemini"**.
-7. Verifica que la respuesta muestre los objetos detectados (en inglés y español con frase contextual) y el cuestionario interactivo de 3 opciones.
-8. Si se produce un error o la imagen no contiene objetos claros, comprueba que se muestre un mensaje amigable y que no se mantenga un resultado anterior desactualizado.
-*(Nota: La superposición gráfica de los recuadros visuales sobre la imagen se incorporará en la Tarea 6).*
+6. Haz clic en el botón **"🔍 Analizar Fotografía con IA"**.
+7. Verifica la visualización de la fotografía con sus recuadros delimitadores y etiquetas numéricas, los controles táctiles de selección/enfoque y las tarjetas educativas de vocabulario.
+8. Si se produce un error o la imagen no contiene objetos claros, comprueba que se muestre un mensaje pedagógico claro y que no se mantenga un resultado anterior desactualizado.
 
 ---
 
 ## 💡 Funcionamiento del Modo Demostración
 
 En el modo demostración (sin credenciales externas configuradas):
-- ✅ **Carga segura de configuración:** El sistema inicializa valores por defecto seguros y reporta el estado de cada servicio en la barra lateral sin fallar.
+- ✅ **Carga segura de configuración:** El sistema inicializa valores por defecto seguros y reporta el estado de cada servicio en la barra lateral sin fallar (`👤 Modo Demo (Sin autenticar)`).
 - ✅ **Captura y preparación M2:** Admite subir archivos o usar la cámara, previsualizar, corregir orientación y preparar la imagen en memoria.
 - ✅ **Aviso informativo en M3:** Al intentar analizar sin clave en `.env`, informa de manera limpia que se requiere configurar `GEMINI_API_KEY`.
 - 🟡 **Servicios protegidos:** Supabase y TTS muestran estado pendiente de forma informativa y limpia.
@@ -298,12 +305,13 @@ En el modo demostración (sin credenciales externas configuradas):
 - [x] Modelos de dominio compartidos (`homelens/modelos.py`) con validaciones e invariantes.
 - [x] Sistema de manejo de errores controlado (`homelens/errores.py`) con `Resultado[T]`.
 - [x] Módulo M0 (`config.py`, `telemetria.py`) para arranque seguro de la aplicación.
+- [x] Módulo M1 (`acceso.py`) con identidad de demostración identificada y base para Tarea 5.
 - [x] Módulo M2 (`imagenes.py`, `ui/captura.py`) con validación y orientación de imágenes.
-- [x] Módulo M3 (`analisis.py`, `integraciones/gemini.py`, `esquemas_ia.py`, `prompts/exploracion.txt`) migrado a `google-genai` con validación estricta endurecida.
-- [x] Módulo M4 (`exploracion.py`) con funciones puras para recuadros en pantalla.
+- [x] Módulo M3 (`analisis.py`, `integraciones/gemini.py`, `esquemas_ia.py`, `prompts/exploracion.txt`) migrado a `google-genai` con validación estricta.
+- [x] Módulo M4 (`exploracion.py`, `ui/exploracion.py`) con recuadros visuales sobre fotografía, selección interactiva y tarjetas pedagógicas (Tarea 6).
 - [x] Módulo M8 (`progreso.py`) con cálculo puro de palabras y estadísticas.
 - [x] Entorno de contenedorización (`Dockerfile`, `compose.yaml`, `.dockerignore`).
-- [x] Suite de 57 pruebas automatizadas con 100% de éxito.
+- [x] Suite de 69 pruebas automatizadas con 100% de éxito.
 
 ---
 
