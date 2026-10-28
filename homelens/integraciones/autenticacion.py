@@ -106,11 +106,15 @@ class AdaptadorAutenticacion:
         # Generar identificador de estado seguro para mitigación estricta de CSRF
         state_token = secrets.token_urlsafe(32)
 
+        # Asegurar que el state viaje en redirect_to para que Supabase lo preserve al retornar a Streamlit
+        sep = "&" if "?" in retorno_permitido else "?"
+        redirect_con_state = f"{retorno_permitido}{sep}state={state_token}"
+
         try:
             res_oauth = cliente.auth.sign_in_with_oauth({
                 "provider": "google",
                 "options": {
-                    "redirect_to": retorno_permitido,
+                    "redirect_to": redirect_con_state,
                     "query_params": {
                         "state": state_token,
                     },
@@ -128,7 +132,7 @@ class AdaptadorAutenticacion:
             self._solicitudes_pendientes[state_token] = {
                 "code_verifier": code_verifier,
                 "creado_en": datetime.now(timezone.utc),
-                "redirect_to": retorno_permitido,
+                "redirect_to": redirect_con_state,
             }
 
             url_auth = getattr(res_oauth, "url", None) or (res_oauth.get("url") if isinstance(res_oauth, dict) else "")
