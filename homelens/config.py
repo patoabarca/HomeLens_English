@@ -70,7 +70,7 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
             app_port = 8501
 
         gemini_api_key = os.getenv("GEMINI_API_KEY")
-        gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+        gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash").strip()
 
         try:
             gemini_timeout_seconds = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "60.0"))
