@@ -40,7 +40,7 @@ class AdaptadorGemini:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        modelo: str = "gemini-2.5-flash",
+        modelo: str = "gemini-3.8-flash",
         timeout_segundos: float = 60.0,
         max_reintentos: int = 1,
         cliente: Optional[Any] = None,

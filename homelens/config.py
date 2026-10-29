@@ -56,9 +56,9 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
     try:
         # Cargar variables de entorno si existe el archivo
         if ruta_env and os.path.exists(ruta_env):
-            load_dotenv(dotenv_path=ruta_env, override=False)
+            load_dotenv(dotenv_path=ruta_env, override=True)
         else:
-            load_dotenv(override=False)
+            load_dotenv(override=True)
 
         app_env = os.getenv("APP_ENV", "development").strip().lower()
         debug = os.getenv("DEBUG", "true").strip().lower() in ("true", "1", "yes")
@@ -70,7 +70,7 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
             app_port = 8501
 
         gemini_api_key = os.getenv("GEMINI_API_KEY")
-        gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+        gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
 
         try:
             gemini_timeout_seconds = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "60.0"))
