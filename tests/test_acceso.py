@@ -450,6 +450,25 @@ class TestAccesoUsuarios(unittest.TestCase):
         self.assertFalse(res_replay.ok)
         self.assertEqual(res_replay.error.codigo, CODIGO_ACCESO_DENEGADO)
 
+    def test_11_flujo_oauth_supabase_sin_parametro_state_en_redirect_url_exitoso(self) -> None:
+        """Verifica que el retorno de Supabase sin 'state' en URL complete el acceso asociando la solicitud activa."""
+        # 1. Iniciar acceso
+        res_inicio = iniciar_acceso(retorno_permitido="http://localhost:8501", config=self.config_valida, adaptador=self.adaptador)
+        self.assertTrue(res_inicio.ok)
+
+        # 2. Simular retorno donde Supabase sólo devuelve ?code=... sin state
+        user_mock = MockSupabaseAuthUser(str(self.uuid_estable_1), email="estudiante.sin.state@gmail.com", full_name="Estudiante Sin State")
+        session_mock = MockSupabaseAuthSession("token_jwt_sin_state", expires_in=3600)
+        self.mock_client.auth.exchange_code_for_session.return_value = MockSupabaseAuthResponse(user_mock, session_mock)
+
+        resp_oauth = RespuestaAcceso(code="auth_code_supabase_real", state=None)
+        res_comp = completar_acceso(respuesta_proveedor=resp_oauth, config=self.config_valida, adaptador=self.adaptador)
+
+        self.assertTrue(res_comp.ok)
+        self.assertEqual(res_comp.valor.user_id, self.uuid_estable_1)
+        self.assertEqual(res_comp.valor.email, "estudiante.sin.state@gmail.com")
+        self.assertEqual(res_comp.valor.nombre, "Estudiante Sin State")
+
 
 if __name__ == "__main__":
     unittest.main()

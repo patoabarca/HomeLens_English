@@ -121,12 +121,6 @@ def completar_acceso(
             mensaje_usuario="No se recibió el código de autorización requerido del proveedor.",
         )
 
-    if not respuesta_proveedor.state:
-        return Resultado.fallo(
-            codigo=CODIGO_ACCESO_DENEGADO,
-            mensaje_usuario="Falta el parámetro de estado de seguridad (state) para prevenir CSRF.",
-        )
-
     adapt = _obtener_adaptador(config=config, adaptador=adaptador)
     if adapt is None:
         return Resultado.fallo(

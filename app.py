@@ -37,13 +37,14 @@ def main() -> None:
     # 2. Procesar retorno de OAuth (Google / Supabase) si existen parámetros en la URL
     params = st.query_params
     auth_code = params.get("code")
-    auth_state = params.get("state")
+    auth_state = params.get("state") or st.session_state.get("auth_state")
     auth_error = params.get("error")
     auth_error_desc = params.get("error_description")
 
     if auth_code or auth_error:
         # Limpiar parámetros de la URL inmediatamente para no dejar credenciales temporales en el navegador
         st.query_params.clear()
+        st.session_state.pop("auth_state", None)
 
         resp_acceso = RespuestaAcceso(
             code=auth_code,
