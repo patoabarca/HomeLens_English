@@ -7,7 +7,7 @@ Asistente educativo inteligente para el aprendizaje contextual del idioma inglé
 ## 📌 Repositorio y Entorno
 - **Repositorio Remoto:** [https://github.com/patoabarca/HomeLens_English](https://github.com/patoabarca/HomeLens_English)
 - **Tipo de Repositorio:** Privado
-- **Rama Actual:** `HLE_Lucas` (Parte 5: Acceso de usuarios M1 - Supabase Auth & Google OAuth)
+- **Rama Actual:** `main` (Integración M1 a M4: Autenticación Supabase/Google y Exploración Visual con Gemini)
 
 ---
 
@@ -431,7 +431,7 @@ En el modo demostración (`ALLOW_DEMO_LOGIN=true` y `AUTH_REQUIRED=false`):
 
 ## 📋 Estado de Implementación
 
-- [x] Repositorio Git local y sincronización remota en rama `HLE_Lucas`.
+- [x] Repositorio Git local y sincronización remota en rama `main`.
 - [x] Exclusión de credenciales asegurada con `.gitignore` previo y `.env.example`.
 - [x] Modelos de dominio compartidos (`homelens/modelos.py`) con validaciones e invariantes.
 - [x] Sistema de manejo de errores controlado (`homelens/errores.py`) con `Resultado[T]`.

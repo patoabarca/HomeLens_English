@@ -160,7 +160,7 @@ class AdaptadorAutenticacion:
     def intercambiar_codigo(
         self,
         auth_code: str,
-        state: str,
+        state: Optional[str] = None,
         redirect_to: Optional[str] = None,
     ) -> Resultado[SesionUsuario]:
         """Intercambia el código de autorización temporal por una sesión y tokens de Supabase.
@@ -169,7 +169,7 @@ class AdaptadorAutenticacion:
 
         Args:
             auth_code: Código devuelto por el proveedor tras la autorización.
-            state: Token devuelto para correlación y validación CSRF.
+            state: Token devuelto para correlación y validación CSRF (opcional si el proveedor no lo reenvía).
             redirect_to: URL de retorno registrada originalmente.
 
         Returns:
@@ -182,24 +182,35 @@ class AdaptadorAutenticacion:
                 mensaje_usuario="El servicio de autenticación no está configurado.",
             )
 
-        # 1. Validación estricta de state anti-CSRF (token de un solo uso)
-        solicitud_guardada = self._solicitudes_pendientes.pop(state, None)
-        if not solicitud_guardada:
-            return Resultado.fallo(
-                codigo=CODIGO_ACCESO_DENEGADO,
-                mensaje_usuario="El estado de autorización es inválido, ya fue utilizado o ha expirado. Por favor, intenta ingresar nuevamente.",
-            )
+        # 1. Validación de state anti-CSRF o recuperación de solicitud pendiente activa
+        solicitud_guardada = None
+        if state:
+            solicitud_guardada = self._solicitudes_pendientes.pop(state, None)
+            if not solicitud_guardada:
+                return Resultado.fallo(
+                    codigo=CODIGO_ACCESO_DENEGADO,
+                    mensaje_usuario="El estado de autorización es inválido, ya fue utilizado o ha expirado. Por favor, intenta ingresar nuevamente.",
+                )
+        else:
+            # En Supabase GoTrue, el proveedor redirecciona a redirect_to únicamente con '?code=...'
+            if self._solicitudes_pendientes:
+                clave_reciente = max(
+                    self._solicitudes_pendientes.keys(),
+                    key=lambda k: self._solicitudes_pendientes[k].get("creado_en", datetime.min.replace(tzinfo=timezone.utc)),
+                )
+                solicitud_guardada = self._solicitudes_pendientes.pop(clave_reciente)
 
-        # 2. Comprobar antigüedad máxima de la solicitud (10 minutos)
-        creado_en = solicitud_guardada.get("creado_en", datetime.now(timezone.utc))
-        if datetime.now(timezone.utc) - creado_en > timedelta(minutes=10):
-            return Resultado.fallo(
-                codigo=CODIGO_ACCESO_DENEGADO,
-                mensaje_usuario="La solicitud de inicio de sesión ha expirado por tiempo. Intenta ingresar nuevamente.",
-            )
+        # 2. Comprobar antigüedad máxima de la solicitud si fue registrada
+        if solicitud_guardada:
+            creado_en = solicitud_guardada.get("creado_en", datetime.now(timezone.utc))
+            if datetime.now(timezone.utc) - creado_en > timedelta(minutes=10):
+                return Resultado.fallo(
+                    codigo=CODIGO_ACCESO_DENEGADO,
+                    mensaje_usuario="La solicitud de inicio de sesión ha expirado por tiempo. Intenta ingresar nuevamente.",
+                )
 
-        code_verifier = solicitud_guardada.get("code_verifier")
-        uri_efectiva = redirect_to or solicitud_guardada.get("redirect_to")
+        code_verifier = solicitud_guardada.get("code_verifier") if solicitud_guardada else None
+        uri_efectiva = redirect_to or (solicitud_guardada.get("redirect_to") if solicitud_guardada else None)
 
         # 3. Intercambio seguro en Supabase Auth
         try:

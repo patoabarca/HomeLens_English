@@ -60,6 +60,7 @@ def renderizar_pantalla_acceso(config: Configuracion) -> None:
                 )
 
                 if res_acceso.ok and res_acceso.valor is not None:
+                    st.session_state.auth_state = res_acceso.valor.state
                     url_google = res_acceso.valor.url_autorizacion
                     st.link_button(
                         "🔑 Ingresar con Google",
