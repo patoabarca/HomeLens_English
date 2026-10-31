@@ -1,0 +1,19 @@
+{
+  "estado": "UTILIZABLE",
+  "objetos": [{
+    "id_local": "obj_1",
+    "nombre_en": "chair",
+    "nombre_es": "silla",
+    "recuadro": {"ymin": 100, "xmin": 150, "ymax": 800, "xmax": 850},
+    "frase_en": "This is a chair.",
+    "frase_es": "Esta es una silla."
+  }],
+  "actividades": [{
+    "id_local": "act_1",
+    "objetos_relacionados": ["obj_1"],
+    "pregunta": "What is this?",
+    "opciones": [{"opcion_id": "A", "texto": "A chair"}, {"opcion_id": "B", "texto": "A book"}, {"opcion_id": "C", "texto": "A bottle"}],
+    "opcion_correcta_id": "A",
+    "explicacion": "Chair significa silla."
+  }]
+}

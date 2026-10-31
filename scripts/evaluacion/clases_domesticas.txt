@@ -5,6 +5,9 @@ Bed
 Desk
 Refrigerator
 Microwave oven
+Kitchen appliance
+Countertop
+Cupboard
 Sink
 Mug
 Toilet
@@ -16,7 +19,6 @@ Computer keyboard
 Computer monitor
 Lamp
 Clock
-Plant
 Television
 Bottle
 Washing machine

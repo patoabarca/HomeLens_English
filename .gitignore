@@ -37,5 +37,17 @@ tmp/
 
 # Dataset A1: no subir imágenes ni cachés de evaluación por defecto
 /data/evaluacion/imagenes/
+/data/evaluacion/cvat/*.zip
+/data/evaluacion/cvat/fotografias_originales/
+/data/evaluacion/cvat/exportaciones/
+/data/evaluacion/cvat/resultados/
+/data/evaluacion/cvat/pilotos/
 *.fiftyone/
 
+# A2-A4: respuestas y revisiones pueden contener datos privados
+/data/evaluacion/resultados/
+/data/evaluacion/cvat/finales/
+/data/**/imagenes/
+/data/**/fotografias_originales/
+/data/**/exportaciones/
+/data/**/*.zip

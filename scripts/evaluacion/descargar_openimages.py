@@ -17,13 +17,20 @@ except ImportError:
 CANDIDATOS_FIELDS = [
     "open_images_id", "split", "ruta_relativa", "estado_descarga", "width", "height",
     "sha256", "ambiente", "iluminacion", "cantidad_objetos", "categorias", "dificultad",
-    "estado_revision", "aceptada", "motivo_descarte", "destino", "autor", "procedencia", "licencia",
+    "puntaje_domestico", "estado_revision", "aceptada", "motivo_descarte", "destino", "autor", "procedencia", "licencia",
 ]
 
 ANOTACIONES_FIELDS = [
     "open_images_id", "split", "ruta_relativa", "categoria", "confidence",
     "bbox_original_xywh", "bbox_homelens_yxyx", "width", "height",
 ]
+
+PRIORIDAD_DOMESTICA = {
+    "Refrigerator", "Microwave oven", "Kitchen appliance", "Countertop", "Cupboard", "Mug",
+    "Couch", "Television", "Lamp", "Furniture", "Bed", "Toilet", "Sink", "Mirror",
+    "Towel", "Laptop", "Computer keyboard", "Computer monitor", "Book", "Desk",
+    "Chair", "Table", "Washing machine",
+}
 
 
 def clases_desde_archivo(path: Path | None) -> list[str] | None:
@@ -40,12 +47,23 @@ def run_download(args: argparse.Namespace) -> int:
         raise SystemExit("FiftyOne no está instalado. Instale requirements-evaluacion.txt en un entorno separado.") from exc
 
     destino = Path(args.destino).resolve()
+    output_files = [destino / "candidatos.csv", destino / "anotaciones.csv", destino / "seleccion.csv"]
+    if any(path.exists() for path in output_files) and not args.allow_overwrite:
+        raise SystemExit(
+            "La salida ya contiene archivos previos. Use un --destino nuevo o confirme "
+            "--allow-overwrite para sobrescribir CSV/revisiones existentes."
+        )
     imagenes = destino / "imagenes"
     imagenes.mkdir(parents=True, exist_ok=True)
 
     clases = clases_desde_archivo(args.classes_file)
     dataset_name = args.dataset_name
     if dataset_name in fo.list_datasets():
+        if not args.reuse_dataset:
+            raise SystemExit(
+                f"El dataset FiftyOne '{dataset_name}' ya existe. Use --reuse-dataset solo para "
+                "reutilizarlo explícitamente o cambie --dataset-name."
+            )
         dataset = fo.load_dataset(dataset_name)
     else:
         dataset = foz.load_zoo_dataset(
@@ -87,6 +105,8 @@ def run_download(args: argparse.Namespace) -> int:
             detections_container = getattr(sample, label_field, None) if label_field else None
             detections = getattr(detections_container, "detections", []) if detections_container else []
             categorias = sorted({det.label for det in detections if getattr(det, "label", "")})
+            categorias_domesticas = PRIORIDAD_DOMESTICA.intersection(categorias)
+            puntaje_domestico = len(categorias_domesticas)
             for det in detections:
                 bbox_relative = getattr(det, "bounding_box", None)
                 if bbox_relative is None or not width or not height:
@@ -115,8 +135,9 @@ def run_download(args: argparse.Namespace) -> int:
         filas.append({
             "open_images_id": str(open_images_id), "split": "validation", "ruta_relativa": str(destination_file.relative_to(destino)).replace("\\", "/"),
             "estado_descarga": state, "width": width, "height": height, "sha256": sha256,
-            "ambiente": "pendiente", "iluminacion": "pendiente", "cantidad_objetos": len(categorias),
+            "ambiente": "pendiente", "iluminacion": "pendiente", "cantidad_objetos": len(detections),
             "categorias": json.dumps(categorias, ensure_ascii=False), "dificultad": "pendiente",
+            "puntaje_domestico": puntaje_domestico,
             "estado_revision": "pendiente", "aceptada": "pendiente", "motivo_descarte": "",
             "destino": "sin asignar", "autor": "pendiente", "procedencia": "Open Images V7", "licencia": "pendiente",
         })
@@ -134,7 +155,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--classes-file", type=Path)
     parser.add_argument("--destino", type=Path, default=Path("data/evaluacion"))
     parser.add_argument("--dataset-name", default="homelens_a1_validation")
-    parser.add_argument("--only-matching", action="store_true", help="Limita imágenes a las categorías indicadas")
+    parser.set_defaults(only_matching=True)
+    parser.add_argument("--only-matching", dest="only_matching", action="store_true", help="Limita imágenes a las categorías indicadas (predeterminado)")
+    parser.add_argument("--include-nonmatching", dest="only_matching", action="store_false", help="Permite conservar muestras que no coincidan")
+    parser.add_argument(
+        "--reuse-dataset",
+        action="store_true",
+        help="Permite reutilizar explícitamente un dataset FiftyOne existente con ese nombre",
+    )
+    parser.add_argument(
+        "--allow-overwrite",
+        action="store_true",
+        help="Permite sobrescribir candidatos.csv, anotaciones.csv o seleccion.csv existentes",
+    )
     return parser
 
 
