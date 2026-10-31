@@ -24,6 +24,7 @@ def sin_red(monkeypatch):
     def prohibido(*args, **kwargs):
         raise AssertionError("Acceso real a Gemini prohibido en tests")
     monkeypatch.setattr(gemini.genai, "Client", prohibido)
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-2.5-flash")
     monkeypatch.setenv("GEMINI_MAX_RETRIES", "0")
     monkeypatch.setenv("GEMINI_API_KEY", "credencial-simulada-no-real")
 
@@ -53,6 +54,46 @@ def dataset(tmp_path, monkeypatch):
     path = results / "manifest.json"
     guardar_json(path, manifest)
     return path, root, photos
+
+
+@pytest.fixture
+def cliente_gemini_controlado(monkeypatch):
+    """Cliente sin red para verificar ejecuciones reales sólo contra un fixture."""
+    calls = []
+    response = SimpleNamespace(text=runner.FIXTURE.read_text(encoding="utf-8"), usage_metadata=None)
+    client = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **kwargs: calls.append(kwargs) or response))
+    monkeypatch.setattr(gemini.genai, "Client", lambda **kwargs: client)
+    return calls
+
+
+@pytest.fixture
+def dataset_final(dataset, tmp_path, request):
+    """Conjunto final completamente controlado, separado del piloto y sin API."""
+    cantidad = getattr(request, "param", 30)
+    photos = tmp_path / "fotos_finales"
+    photos.mkdir()
+    for i in range(1, cantidad + 1):
+        Image.new("RGB", (100, 80), (i, 0, 0)).save(photos / f"{i}.png")
+    export = tmp_path / "final.zip"
+    with ZipFile(export, "w") as archive:
+        archive.writestr("annotations/instances_default.json", json.dumps({
+            "images": [{"id": i, "width": 100, "height": 80, "file_name": f"{i}.png"} for i in range(1, cantidad + 1)],
+            "categories": [{"id": 1, "name": "Chair"}],
+            "annotations": [{"id": i, "image_id": i, "category_id": 1, "bbox": [15, 8, 70, 56]} for i in range(1, cantidad + 1)],
+        }))
+    root = tmp_path / "a1_final"
+    import_cvat(export, root, "final_controlado", "evaluacion_final", photos)
+    rows = read_csv(root / "candidatos.csv")
+    for row in rows:
+        row["aceptada"] = "si"
+    write_csv(root / "candidatos.csv", list(rows[0]), rows)
+    manifest = preparar_manifest(root, photos, "evaluacion_final", "sintetica")
+    # Sólo los datos temporales del test reciben esta autorización ficticia.
+    for image in manifest["imagenes"]:
+        image["permisos"] = "confirmados"
+    path = runner.RESULTADOS / "manifest_final_controlado.json"
+    guardar_json(path, manifest)
+    return path, dataset[0], runner.RESULTADOS / "protocolo_final_controlado.json"
 
 
 def pred(name="chair", box=None, id="obj_1"):
@@ -143,7 +184,9 @@ def test_tiempos_exitos_fallos_y_sin_api():
     assert result["fallidas"]["promedio"] == 8
 
 
-def test_cvat_lectura_simulacion_reanudacion_e_informe(dataset):
+@pytest.mark.parametrize("modelo", ["gemini-2.5-flash", "gemini-3.6-flash"])
+def test_cvat_lectura_simulacion_reanudacion_e_informe(dataset, monkeypatch, modelo):
+    monkeypatch.setenv("GEMINI_MODEL", modelo)
     path, root, _ = dataset
     original = (root / "anotaciones.csv").read_bytes()
     run = runner.ejecutar(path, "simulacion")
@@ -153,7 +196,11 @@ def test_cvat_lectura_simulacion_reanudacion_e_informe(dataset):
     assert all(r["llamadas"][0]["tokens"] is None for r in records)
     assert records[0]["respuesta"]["actividades"][0]["opcion_correcta_id"] == "A"
     config = records[0]["llamadas"][0]["configuracion_enviada"]
-    assert config["temperature"] == 0.2 and "system_instruction" not in config
+    assert "system_instruction" not in config
+    if modelo == "gemini-3.6-flash":
+        assert "temperature" not in config
+    else:
+        assert config["temperature"] == 0.2
     runner.ejecutar(path, "simulacion")
     assert len(runner.registros(run, todos=True)) == 2
     output = report.informar(run)
@@ -164,6 +211,46 @@ def test_cvat_lectura_simulacion_reanudacion_e_informe(dataset):
     assert len(read_csv(output / "referencias.csv")) == 2
     assert (root / "anotaciones.csv").read_bytes() == original
     assert "credencial-simulada-no-real" not in (run / "ejecucion.json").read_text()
+
+
+@pytest.mark.parametrize("modelo", ["gemini-2.5-flash", "gemini-3.6-flash"])
+def test_configuracion_registrada_y_solicitud_compartida(dataset, monkeypatch, modelo):
+    from uuid import UUID, uuid4
+    from homelens.modelos import ContextoUsuario
+    from homelens.esquemas_ia import RespuestaExploracionIA
+
+    monkeypatch.setenv("GEMINI_MODEL", modelo)
+    snapshot, app_cfg = runner.configuracion(False)
+    image = runner.preparar_imagen((dataset[2] / "1.jpg").read_bytes(), max_dimension_px=1280).valor
+    calls = []
+    response = SimpleNamespace(text=runner.FIXTURE.read_text(encoding="utf-8"), usage_metadata=None)
+    client = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **kwargs: calls.append(kwargs) or response))
+    primary = runner.AdaptadorGemini(modelo=app_cfg.gemini_model, cliente=client, max_reintentos=0)
+    capture = runner.ClienteRegistrado(primary, False)
+    evaluation = runner.AdaptadorGemini(modelo=app_cfg.gemini_model, cliente=capture, max_reintentos=0)
+    user = ContextoUsuario(UUID(int=0), "comparacion-offline")
+    for adapter in (primary, evaluation):
+        assert runner.analizar_exploracion(user, image, uuid4(), adaptador=adapter).ok
+    assert calls[0] == calls[1]
+    assert calls[0]["model"] == snapshot["modelo"] == modelo
+    config = calls[0]["config"]
+    assert config.system_instruction == runner._cargar_prompt_exploracion()
+    assert config.response_schema is RespuestaExploracionIA
+    assert config.response_mime_type == snapshot["generacion"]["response_mime_type"]
+    sent = capture.llamadas[0]["configuracion_enviada"]
+    if modelo == "gemini-3.6-flash":
+        incompatible = {"temperature", "top_p", "top_k", "candidate_count", "presence_penalty", "frequency_penalty", "thinking_config"}
+        assert incompatible.isdisjoint(sent)
+        assert "temperature" not in snapshot["generacion"]
+        assert snapshot["generacion"]["temperatura_enviada"] is False
+        assert snapshot["generacion"]["razonamiento"] == {
+            "nivel_predeterminado_documentado": "medium", "origen": "predeterminado_proveedor",
+            "configuracion_enviada": False,
+        }
+    else:
+        assert sent["temperature"] == snapshot["generacion"]["temperature"] == 0.2
+        assert snapshot["generacion"]["temperatura_enviada"] is True
+        assert "razonamiento" not in snapshot["generacion"]
 
 
 def test_revision_exportada_aplicada_sin_sobrescribir(dataset):
@@ -187,6 +274,75 @@ def test_api_requiere_autorizacion_y_permisos(dataset):
         runner.ejecutar(dataset[0], "real", real=True)
     with pytest.raises(ValueError, match="permisos"):
         runner.ejecutar(dataset[0], "real", real=True, autorizar_api=True)
+
+
+@pytest.mark.parametrize("selector,autorizada", [
+    ({"image_id": "cvat_test_2"}, "cvat_test_2"),
+    ({"image_id": "cvat_test_2", "limit": 1}, "cvat_test_2"),
+    ({"limit": 1}, "cvat_test_1"),
+])
+def test_permisos_solo_de_imagenes_seleccionadas(dataset, monkeypatch, cliente_gemini_controlado, selector, autorizada):
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-3.6-flash")
+    path = dataset[0]
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    next(x for x in manifest["imagenes"] if x["image_id"] == autorizada)["permisos"] = "confirmados"
+    guardar_json(path, manifest)
+    original = path.read_bytes()
+    run = runner.ejecutar(path, "seleccion_autorizada", real=True, autorizar_api=True, **selector)
+    records = runner.registros(run)
+    assert len(records) == 1 and records[0]["image_id"] == autorizada and records[0]["estado"] == "valida"
+    assert len(cliente_gemini_controlado) == 1 and cliente_gemini_controlado[0]["model"] == "gemini-3.6-flash"
+    assert path.read_bytes() == original
+    assert next(x for x in manifest["imagenes"] if x["image_id"] != autorizada)["permisos"] == "pendiente"
+
+
+@pytest.mark.parametrize("selector,pendiente", [
+    ({"image_id": "cvat_test_2"}, "cvat_test_2"),
+    ({"image_id": "cvat_test_2", "limit": 1}, "cvat_test_2"),
+    ({"limit": 1}, "cvat_test_1"),
+    ({"limit": 2}, "cvat_test_2"),
+    ({}, "cvat_test_2"),
+])
+def test_seleccion_con_permiso_pendiente_rechazada(dataset, cliente_gemini_controlado, selector, pendiente):
+    manifest = json.loads(dataset[0].read_text(encoding="utf-8"))
+    for image in manifest["imagenes"]:
+        image["permisos"] = "pendiente" if image["image_id"] == pendiente else "confirmados"
+    guardar_json(dataset[0], manifest)
+    with pytest.raises(ValueError, match="permisos.*seleccionadas"):
+        runner.ejecutar(dataset[0], "seleccion_rechazada", real=True, autorizar_api=True, **selector)
+    assert not cliente_gemini_controlado
+    assert not (runner.RESULTADOS / "seleccion_rechazada").exists()
+
+
+def test_final_completo_valida_las_30_y_ejecuta_con_fixture(dataset_final, cliente_gemini_controlado):
+    path, piloto, protocolo = dataset_final
+    runner.congelar(path, piloto, protocolo)
+    run = runner.ejecutar(path, "final_controlado", real=True, autorizar_api=True, protocolo=protocolo)
+    assert len(runner.registros(run)) == len(cliente_gemini_controlado) == 30
+    assert all(r["estado"] == "valida" for r in runner.registros(run))
+
+
+def test_final_completo_rechaza_una_de_las_30_sin_permiso(dataset_final, cliente_gemini_controlado):
+    path, piloto, protocolo = dataset_final
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["imagenes"][-1]["permisos"] = "pendiente"
+    guardar_json(path, manifest)
+    runner.congelar(path, piloto, protocolo)
+    with pytest.raises(ValueError, match="permisos"):
+        runner.ejecutar(path, "final_rechazado", real=True, autorizar_api=True, protocolo=protocolo)
+    assert not cliente_gemini_controlado
+    assert not (runner.RESULTADOS / "final_rechazado").exists()
+
+
+@pytest.mark.parametrize("dataset_final", [29], indirect=True)
+def test_seleccion_no_elude_cantidad_final_de_30(dataset_final, cliente_gemini_controlado):
+    path, piloto, protocolo = dataset_final
+    runner.congelar(path, piloto, protocolo)
+    with pytest.raises(ValueError, match="30 fotografías"):
+        runner.ejecutar(path, "final_incompleto", real=True, autorizar_api=True, limit=1,
+                       image_id="cvat_final_controlado_1", protocolo=protocolo)
+    assert not cliente_gemini_controlado
+    assert not (runner.RESULTADOS / "final_incompleto").exists()
 
 
 def test_fallo_individual_continua_y_reintento_conserva_historial(dataset):

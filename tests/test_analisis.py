@@ -6,9 +6,12 @@ llamadas de red externas.
 
 from __future__ import annotations
 import unittest
+import json
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
+import httpx
+from google import genai
 from google.genai import types, errors
 
 from homelens.analisis import analizar_exploracion, obtener_actividades_publicas
@@ -822,6 +825,50 @@ class TestAnalisisGemini(unittest.TestCase):
     # =====================================================================
     # 7. Pruebas del AdaptadorGemini con Cliente SDK Simulado
     # =====================================================================
+
+    def _solicitud_serializada_sin_red(self, modelo: str) -> dict:
+        """Captura el cuerpo HTTP real del SDK sin conectarse al proveedor."""
+        solicitudes = []
+
+        def responder(request):
+            self.assertTrue(request.url.path.endswith(f"/models/{modelo}:generateContent"))
+            solicitudes.append(json.loads(request.content))
+            return httpx.Response(200, json={"candidates": [{
+                "content": {"role": "model", "parts": [{"text": '{"estado":"SIN_OBJETOS_CLAROS","objetos":[],"actividades":[]}'}]},
+                "finishReason": "STOP",
+            }]})
+
+        cliente = genai.Client(api_key="clave-ficticia-de-prueba", vertexai=False,
+                               http_options=types.HttpOptions(client_args={"transport": httpx.MockTransport(responder)}))
+        try:
+            adaptador = AdaptadorGemini(modelo=modelo, cliente=cliente, max_reintentos=0)
+            resultado = adaptador.analizar_imagen_exploracion(
+                self.imagen_prueba.contenido, self.imagen_prueba.mime_type, "instrucciones")
+            self.assertTrue(resultado.ok)
+            self.assertEqual(len(solicitudes), 1)
+        finally:
+            # google-genai 1.29 no ofrece Client.close().
+            cliente._api_client._httpx_client.close()
+        return solicitudes[0]
+
+    def test_gemini_36_omite_temperatura_y_parametros_incompatibles(self):
+        solicitud = self._solicitud_serializada_sin_red("gemini-3.6-flash")
+        config = solicitud["generationConfig"]
+        incompatibles = {"temperature", "topP", "topK", "candidateCount", "presencePenalty", "frequencyPenalty", "thinkingConfig"}
+        self.assertTrue(incompatibles.isdisjoint(config))
+        self.assertEqual(config["responseMimeType"], "application/json")
+        self.assertEqual(config["responseSchema"]["properties"]["objetos"]["type"], "ARRAY")
+        self.assertEqual(solicitud["systemInstruction"]["parts"][0]["text"], "instrucciones")
+        self.assertEqual(solicitud["contents"][-1]["role"], "user")
+        self.assertEqual(solicitud["contents"][0]["parts"][0]["inlineData"]["mimeType"], "image/jpeg")
+
+    def test_gemini_25_conserva_temperatura_y_esquema(self):
+        solicitud = self._solicitud_serializada_sin_red("gemini-2.5-flash")
+        config = solicitud["generationConfig"]
+        self.assertEqual(config["temperature"], 0.2)
+        self.assertEqual(config["responseMimeType"], "application/json")
+        self.assertEqual(config["responseSchema"]["properties"]["objetos"]["type"], "ARRAY")
+        self.assertNotIn("thinkingConfig", config)
 
     def test_adaptador_con_cliente_sdk_simulado_exito(self) -> None:
         """Prueba AdaptadorGemini simulando models.generate_content del SDK."""

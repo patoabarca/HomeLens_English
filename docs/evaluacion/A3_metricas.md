@@ -2,6 +2,12 @@
 
 La referencia procede de anotaciones manuales de CVAT importadas por A1. Todas las cajas usan `[ymin, xmin, ymax, xmax]` en escala 0–1000. La conversión COCO existente se reutiliza durante la importación; A3 lee esa columna y no vuelve a convertir ni altera las anotaciones humanas.
 
+## Configuración del experimento
+
+El modelo seleccionado es `gemini-3.6-flash`. A2 usa el mismo adaptador, prompt y esquema estructurado de la aplicación: no envía temperatura ni configuración explícita de razonamiento. El nivel `medium` registrado es el predeterminado documentado del proveedor, sin implicar determinismo ni un valor medido internamente. El registro diferencia ese dato de la configuración enviada; véase [A2](A2_experimentos.md).
+
+Este cambio de modelo/configuración **no modifica las métricas, los sinónimos, el umbral IoU ni los criterios de correspondencia y revisión humana definidos abajo**. Los resultados de 3.6 se registran bajo un run-id nuevo y se conservan separados de los anteriores; no se mezclan promedios o precisiones entre modelos. Los tiempos de razonamiento y servicio quedan incluidos en la duración observada, sin estimaciones adicionales. Una simulación identifica el modelo previsto en sus metadatos, pero no es una respuesta auténtica de ese modelo.
+
 ## Identificación y correspondencia
 
 Se normalizan mayúsculas, espacios y acentos, y se usa un diccionario versionado y explícito de equivalencias inglesas (`metricas.SINONIMOS`). Ejemplos: couch/sofa, TV/television, fridge/refrigerator. No se presupone que table y coffee table, ni que cushion y pillow, sean siempre intercambiables. Las etiquetas desconocidas o diferencias de granularidad pasan a revisión. El nombre en español se evalúa por separado, para no confirmar una identificación sólo a partir de una traducción potencialmente incorrecta.
@@ -35,9 +41,9 @@ En el CSV se usan `correcta` (Sí), `incorrecta` (No), `pendiente`. Para cada cr
 Modificar sólo las columnas de decisión, `referencia_id` y observaciones; conservar `run_id`, `image_id`, `intento` e `id_local`. `referencias.csv` permite localizar los IDs humanos. Una identificación manual `pendiente` deja actuar el procedimiento automático; `correcta`/`incorrecta` lo reemplaza. Una referencia manual requiere `correcta`. Los informes posteriores conservan una copia del CSV aplicado para su auditoría y se generan en directorios nuevos. La plantilla original no se sobrescribe. Si se añaden respuestas después de crearla, las filas ausentes cuentan como pendientes; se pueden añadir siguiendo los IDs del detalle por objeto o crear otra plantilla con una ejecución completa nueva.
 
 ```powershell
-python -m scripts.evaluacion.informe_metricas --run data/evaluacion/resultados/simulacion_piloto_v1
+python -m scripts.evaluacion.informe_metricas --run data/evaluacion/resultados/simulacion_piloto_gemini36_v1
 # Editar revision_humana.csv y regenerar:
-python -m scripts.evaluacion.informe_metricas --run data/evaluacion/resultados/simulacion_piloto_v1
+python -m scripts.evaluacion.informe_metricas --run data/evaluacion/resultados/simulacion_piloto_gemini36_v1
 ```
 
 ## Tiempos y agregación
@@ -50,4 +56,4 @@ El generador comprueba que el código de métricas e informes coincida con los h
 
 ## Limitaciones
 
-Muestra pequeña, posible sesgo de escenas sintéticas, inventario CVAT no exhaustivo, criterios de equivalencia discretos, subjetividad humana y variabilidad generativa. Los recuentos de respuestas válidas describen el contrato de software; no equivalen a detecciones correctas. Se deben resolver o declarar los pendientes antes de presentar una precisión definitiva. Las cinco fotografías piloto sirven para depurar el instrumento; las 30 finales quedan reservadas. No hay resultados reales ni conclusiones de desempeño hasta realizar y revisar las llamadas autorizadas.
+Muestra pequeña, posible sesgo de escenas sintéticas, inventario CVAT no exhaustivo, criterios de equivalencia discretos, subjetividad humana y variabilidad generativa. Los recuentos de respuestas válidas describen el contrato de software; no equivalen a detecciones correctas. Se deben resolver o declarar los pendientes antes de presentar una precisión definitiva. Las cinco fotografías piloto sirven para depurar el instrumento; las 30 finales quedan reservadas. La prueba real de Cocina y su revisión humana se resumen en [A4](A4_resultados.md): corresponden a una sola fotografía piloto, con pertinencia pendiente para una frase por idioma, y no permiten concluir el desempeño general del modelo. Sus métricas se calcularon con estos mismos criterios, sin alterarlos.

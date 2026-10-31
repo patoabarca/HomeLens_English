@@ -50,12 +50,24 @@ def configuracion(simulada: bool) -> tuple[dict, object]:
                "scripts/evaluacion/evaluacion_common.py"]
     sources += [str(p.relative_to(PROYECTO)).replace("\\", "/") for p in Path(__file__).parent.glob("*_experimento.py")]
     sources += ["scripts/evaluacion/metricas.py", "scripts/evaluacion/informe_metricas.py"]
+    generacion = {
+        "response_mime_type": "application/json",
+        "temperatura_enviada": adapter.modelo != "gemini-3.6-flash",
+        "otros_parametros": "No fijados por HomeLens; defaults del proveedor/SDK",
+    }
+    if adapter.modelo == "gemini-3.6-flash":
+        generacion["razonamiento"] = {
+            "nivel_predeterminado_documentado": "medium",
+            "origen": "predeterminado_proveedor",
+            "configuracion_enviada": False,
+        }
+    else:
+        generacion["temperature"] = 0.2
     snapshot = {
         "modo": "simulado" if simulada else "real", "modelo": adapter.modelo,
         "prompt_sha256": hashlib.sha256(_cargar_prompt_exploracion().encode()).hexdigest(),
         "schema_version": 1, "schema_sha256": huella(RespuestaExploracionIA.model_json_schema()),
-        "generacion": {"temperature": 0.2, "response_mime_type": "application/json",
-                       "otros_parametros": "No fijados por HomeLens; defaults del proveedor/SDK"},
+        "generacion": generacion,
         "timeout_segundos": adapter.timeout_segundos, "max_reintentos": adapter.max_reintentos,
         "preparacion": {"max_bytes": cfg.max_image_size_bytes, "max_dimension_px": 1280},
         "criterios": VERSION_CRITERIOS, "iou_umbral": 0.5, "sinonimos": SINONIMOS,
@@ -157,13 +169,13 @@ def ejecutar(manifest_path: Path, run_id: str, *, real: bool = False, autorizar_
         validar_separacion(manifest, protocol["piloto"])
         if len(manifest["imagenes"]) != 30:
             raise ValueError("El conjunto final debe contener las 30 fotografías previstas")
-    if real and (not app_cfg.gemini_api_key or any(x["origen"] == "pendiente" or x["permisos"] != "confirmados" for x in manifest["imagenes"])):
-        raise ValueError("La ejecución real requiere GEMINI_API_KEY y procedencia/permisos confirmados en el manifiesto")
     images = [x for x in manifest["imagenes"] if image_id is None or x["image_id"] == image_id]
     if not images:
         raise ValueError("No se encontró la imagen solicitada")
     if limit:
         images = images[:limit]
+    if real and (not app_cfg.gemini_api_key or any(x["origen"] == "pendiente" or x["permisos"] != "confirmados" for x in images)):
+        raise ValueError("La ejecución real requiere GEMINI_API_KEY y procedencia/permisos confirmados para las imágenes seleccionadas")
     run = dentro(RESULTADOS / run_id, RESULTADOS)
     identity = {"run_id": run_id, "configuracion": config, "config_sha256": huella(config),
                 "manifest_sha256": sha256_file(manifest_path), "dataset": manifest, "anotaciones": annotations}

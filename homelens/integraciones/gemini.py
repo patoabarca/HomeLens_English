@@ -120,12 +120,15 @@ class AdaptadorGemini:
         # Preparación de la parte multimodal de imagen y configuración de generación
         try:
             parte_imagen = types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type)
+            # Gemini 3.6 ignora los parámetros de muestreo; no enviarlos.
+            # Los demás modelos conservan la configuración previa de HomeLens.
+            parametros_muestreo = {} if self.modelo == "gemini-3.6-flash" else {"temperature": 0.2}
             config_generacion = types.GenerateContentConfig(
                 system_instruction=instrucciones,
-                temperature=0.2,
                 response_mime_type="application/json",
                 response_schema=RespuestaExploracionIA,
                 http_options=types.HttpOptions(timeout=int(self.timeout_segundos * 1000)),
+                **parametros_muestreo,
             )
         except Exception:
             return Resultado.fallo(
