@@ -6,7 +6,7 @@ de limpieza para la integración con autenticación (Tarea 5).
 """
 
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Any
 import streamlit as st
 
 from homelens.modelos import ContextoUsuario, Exploracion, ImagenPreparada
@@ -49,6 +49,36 @@ def inicializar_estado_sesion() -> None:
         st.session_state.mensaje_auth = None
     if "seccion_navegacion" not in st.session_state:
         st.session_state.seccion_navegacion = "Inicio / Estado"
+    if "cuestionario_indice_actual" not in st.session_state:
+        st.session_state.cuestionario_indice_actual = 0
+    if "cuestionario_respuestas" not in st.session_state:
+        st.session_state.cuestionario_respuestas = {}
+    if "cuestionario_opciones_elegidas" not in st.session_state:
+        st.session_state.cuestionario_opciones_elegidas = {}
+    if "cuestionario_orden_opciones" not in st.session_state:
+        st.session_state.cuestionario_orden_opciones = {}
+    if "cuestionario_confirmado" not in st.session_state:
+        st.session_state.cuestionario_confirmado = False
+    if "cuestionario_exploracion_id" not in st.session_state:
+        st.session_state.cuestionario_exploracion_id = None
+    if "cuestionario_finalizado" not in st.session_state:
+        st.session_state.cuestionario_finalizado = False
+
+
+def limpiar_datos_cuestionario() -> None:
+    """Restablece completamente el progreso, respuestas, órdenes e índice del cuestionario activo."""
+    st.session_state.cuestionario_indice_actual = 0
+    st.session_state.cuestionario_respuestas = {}
+    st.session_state.cuestionario_opciones_elegidas = {}
+    st.session_state.cuestionario_orden_opciones = {}
+    st.session_state.cuestionario_confirmado = False
+    st.session_state.cuestionario_exploracion_id = None
+    st.session_state.cuestionario_finalizado = False
+
+    # Eliminar claves dinámicas de selección de widgets para forzar deselección limpia
+    for k in list(st.session_state.keys()):
+        if str(k).startswith("radio_actividad_"):
+            del st.session_state[k]
 
 
 def limpiar_datos_exploracion() -> None:
@@ -73,6 +103,7 @@ def limpiar_datos_exploracion() -> None:
     st.session_state.scroll_hacia_foto = False
     st.session_state.intento_activo_id = None
     st.session_state.operacion_en_curso = False
+    limpiar_datos_cuestionario()
 
 
 def invalidar_preparacion_anterior() -> None:
@@ -87,6 +118,7 @@ def invalidar_preparacion_anterior() -> None:
     st.session_state.error_analisis = None
     st.session_state.imagen_asociada_id = None
     st.session_state.intento_activo_id = None
+    limpiar_datos_cuestionario()
 
 
 def registrar_nueva_imagen(contenido: Optional[bytes], origen: str) -> None:

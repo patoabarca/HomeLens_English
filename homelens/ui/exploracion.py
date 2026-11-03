@@ -285,3 +285,19 @@ def mostrar_exploracion(
                 > *"{frase_es_esc}"*
                 """
             )
+
+    # 6. Invitación al Cuestionario Interactivo de la Exploración (M6 - Tarea 9)
+    if exploracion.actividades:
+        st.divider()
+        st.markdown(
+            f"""
+            <div style='background-color: rgba(2, 132, 199, 0.05); border: 1px solid rgba(2, 132, 199, 0.3); padding: 16px 20px; border-radius: 10px; margin-top: 10px; margin-bottom: 12px;'>
+                <h4 style='margin: 0 0 6px 0; color: #0284c7;'>📝 Cuestionario Interactivo</h4>
+                <p style='margin: 0; font-size: 0.95em;'>Esta fotografía cuenta con <strong>{len(exploracion.actividades)} actividad(es) educativa(s)</strong> para poner a prueba tu vocabulario.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("🚀 Comenzar Cuestionario Interactivo", type="primary", use_container_width=True, key="btn_iniciar_cuestionario_desde_exploracion"):
+            st.session_state.seccion_navegacion = "Prácticas y Cuestionarios"
+            st.rerun()

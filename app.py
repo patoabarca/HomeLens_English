@@ -2,7 +2,8 @@
 
 Punto de entrada de Streamlit y orquestación de módulos M0-M8.
 Incluye autenticación delegada con Google vía Supabase Auth (M1 - Parte 5),
-aislamiento de sesiones, protección de operaciones y navegación pedagógica.
+aislamiento de sesiones, protección de operaciones, exploración visual y
+cuestionarios pedagógicos interactivos (M6 - Tarea 9).
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from homelens.modelos import RespuestaAcceso
 from homelens.ui.estado import inicializar_estado_sesion, cerrar_sesion_usuario
 from homelens.ui.acceso import renderizar_pantalla_acceso
 from homelens.ui.captura import renderizar_pantalla_captura
+from homelens.ui.cuestionarios import renderizar_pantalla_cuestionarios
 
 
 def main() -> None:
@@ -133,11 +135,17 @@ def main() -> None:
         else:
             opciones_navegacion = ["Acceso / Ingreso"]
 
+        idx_seccion = 0
+        seccion_solicitada = st.session_state.get("seccion_navegacion")
+        if seccion_solicitada in opciones_navegacion:
+            idx_seccion = opciones_navegacion.index(seccion_solicitada)
+
         seccion = st.radio(
             "Navegación",
             opciones_navegacion,
-            index=0,
+            index=idx_seccion,
         )
+        st.session_state.seccion_navegacion = seccion
 
         st.divider()
         st.subheader("Estado de Integraciones")
@@ -179,13 +187,14 @@ def main() -> None:
             - ✅ **M2 Captura y Preparación:** Validación estricta, orientación EXIF y memoria volátil segura.
             - ✅ **M3 Análisis con Gemini:** Detección multimodal de objetos y generación pedagógica estructurada.
             - ✅ **M4 Exploración Visual:** Recuadros normalizados con foco interactivo y tarjetas educativas.
+            - ✅ **M6 Prácticas y Cuestionarios:** Cuestionarios interactivos locales basados en objetos detectados (Tarea 9).
             - ✅ **Aislamiento de Secretos:** Exclusión estricta en `.gitignore`, Docker reproducible y variables seguras.
             """
         )
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric(label="Módulo Activo", value="M1 Acceso")
+            st.metric(label="Módulo Activo", value="M6 Cuestionarios")
         with col2:
             st.metric(label="Límite Tamaño Imagen", value=f"{config.max_image_size_bytes // 1_000_000} MB")
         with col3:
@@ -195,8 +204,7 @@ def main() -> None:
         renderizar_pantalla_captura(config)
 
     elif seccion == "Prácticas y Cuestionarios":
-        st.header("📝 Prácticas y Cuestionarios")
-        st.info("Los cuestionarios interactivos basados en tus exploraciones se activarán en las siguientes etapas.")
+        renderizar_pantalla_cuestionarios()
 
     elif seccion == "Desafíos Find It":
         st.header("🎯 Desafíos Find It")
