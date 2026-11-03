@@ -1,8 +1,10 @@
 """HomeLens English - Aplicación Principal.
 
 Punto de entrada de Streamlit y orquestación de módulos M0-M8.
-Incluye autenticación delegada con Google vía Supabase Auth (M1 - Parte 5),
-aislamiento de sesiones, protección de operaciones y navegación pedagógica.
+Incluye autenticación delegada con Google vía Supabase Auth (M1),
+aislamiento de sesiones, protección de operaciones, exploración visual (M4),
+audio bajo demanda con TTS (M5), cuestionarios pedagógicos (M6) y
+guardado e historial de exploraciones (M7).
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from homelens.ui.estado import inicializar_estado_sesion, cerrar_sesion_usuario
 from homelens.ui.acceso import renderizar_pantalla_acceso
 from homelens.ui.captura import renderizar_pantalla_captura
 from homelens.ui.historial import renderizar_pantalla_historial
+from homelens.ui.cuestionarios import renderizar_pantalla_cuestionarios
 
 
 def main() -> None:
@@ -135,16 +138,15 @@ def main() -> None:
         else:
             opciones_navegacion = ["Acceso / Ingreso"]
 
-        indice_seccion = (
-            opciones_navegacion.index(st.session_state.seccion_navegacion)
-            if st.session_state.get("seccion_navegacion") in opciones_navegacion
-            else 0
-        )
+        idx_seccion = 0
+        seccion_solicitada = st.session_state.get("seccion_navegacion")
+        if seccion_solicitada in opciones_navegacion:
+            idx_seccion = opciones_navegacion.index(seccion_solicitada)
 
         seccion = st.radio(
             "Navegación",
             opciones_navegacion,
-            index=indice_seccion,
+            index=idx_seccion,
         )
         st.session_state.seccion_navegacion = seccion
 
@@ -160,7 +162,7 @@ def main() -> None:
 
         st.write(f"• **Entorno:** `{config.app_env}`")
         st.write(f"• **Gemini API:** {'🟢 Configurado' if config.tiene_gemini else '🟡 Pendiente (.env)'}")
-        st.write(f"• **Supabase Auth:** {'🟢 Configurado' if config.tiene_supabase else '🟡 Pendiente (.env)'}")
+        st.write(f"• **Supabase:** {'🟢 Configurado' if config.tiene_supabase else '🟡 Pendiente (.env)'}")
         st.write(f"• **TTS Idioma:** `{config.google_tts_language_code}`")
 
         if st.session_state.get("imagen_preparada") is not None:
@@ -182,19 +184,22 @@ def main() -> None:
             **HomeLens English** transforma los objetos reales de tu entorno en oportunidades
             prácticas para aprender vocabulario y gramática en inglés.
 
-            ### Estado del Sistema:
+            ### Estado del Sistema Integrado:
             - ✅ **M1 Acceso de usuarios:** Autenticación delegada con Google vía Supabase Auth y validación en servidor.
             - ✅ **M0 Configuración y Entorno:** Validado y cargado de forma segura sin exponer credenciales.
             - ✅ **M2 Captura y Preparación:** Validación estricta, orientación EXIF y memoria volátil segura.
             - ✅ **M3 Análisis con Gemini:** Detección multimodal de objetos y generación pedagógica estructurada.
             - ✅ **M4 Exploración Visual:** Recuadros normalizados con foco interactivo y tarjetas educativas.
+            - ✅ **M5 Audio y Pronunciación:** Síntesis de voz con Google Cloud TTS y caché en memoria (Tarea 8).
+            - ✅ **M6 Prácticas y Cuestionarios:** Cuestionarios interactivos con opciones aleatorias y evaluación instantánea (Tarea 9).
+            - ✅ **M7 Persistencia e Historial:** Guardado atómico de exploraciones y recuperación desde historial (Tarea 7).
             - ✅ **Aislamiento de Secretos:** Exclusión estricta en `.gitignore`, Docker reproducible y variables seguras.
             """
         )
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric(label="Módulo Activo", value="M1 Acceso")
+            st.metric(label="Módulo Activo", value="M5-M6-M7 Integrados")
         with col2:
             st.metric(label="Límite Tamaño Imagen", value=f"{config.max_image_size_bytes // 1_000_000} MB")
         with col3:
@@ -207,8 +212,7 @@ def main() -> None:
         renderizar_pantalla_historial(config)
 
     elif seccion == "Prácticas y Cuestionarios":
-        st.header("📝 Prácticas y Cuestionarios")
-        st.info("Los cuestionarios interactivos basados en tus exploraciones se activarán en las siguientes etapas.")
+        renderizar_pantalla_cuestionarios()
 
     elif seccion == "Desafíos Find It":
         st.header("🎯 Desafíos Find It")
