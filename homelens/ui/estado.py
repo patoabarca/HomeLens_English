@@ -49,6 +49,14 @@ def inicializar_estado_sesion() -> None:
         st.session_state.mensaje_auth = None
     if "seccion_navegacion" not in st.session_state:
         st.session_state.seccion_navegacion = "Inicio / Estado"
+    if "exploraciones_guardadas_ids" not in st.session_state:
+        st.session_state.exploraciones_guardadas_ids = set()
+    if "_exploraciones_demo" not in st.session_state:
+        st.session_state._exploraciones_demo = {}
+    if "mensaje_historial" not in st.session_state:
+        st.session_state.mensaje_historial = None
+    if "error_historial" not in st.session_state:
+        st.session_state.error_historial = None
 
 
 def limpiar_datos_exploracion() -> None:
@@ -131,6 +139,10 @@ def cerrar_sesion_usuario(config: Optional[Any] = None) -> None:
     st.session_state.error_auth = None
     st.session_state.mensaje_auth = "Has cerrado sesión correctamente. Tus datos temporales fueron descartados."
     st.session_state.seccion_navegacion = "Inicio / Estado"
+    st.session_state._exploraciones_demo = {}
+    st.session_state.exploraciones_guardadas_ids = set()
+    st.session_state.mensaje_historial = None
+    st.session_state.error_historial = None
 
     # Forzar reinicio de widgets de entrada
     st.session_state.uploader_version = st.session_state.get("uploader_version", 0) + 1

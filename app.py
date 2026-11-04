@@ -14,6 +14,7 @@ from homelens.modelos import RespuestaAcceso
 from homelens.ui.estado import inicializar_estado_sesion, cerrar_sesion_usuario
 from homelens.ui.acceso import renderizar_pantalla_acceso
 from homelens.ui.captura import renderizar_pantalla_captura
+from homelens.ui.historial import renderizar_pantalla_historial
 
 
 def main() -> None:
@@ -126,6 +127,7 @@ def main() -> None:
             opciones_navegacion = [
                 "Inicio / Estado",
                 "Exploración Visual",
+                "Historial de Exploraciones",
                 "Prácticas y Cuestionarios",
                 "Desafíos Find It",
                 "Mi Progreso",
@@ -133,11 +135,18 @@ def main() -> None:
         else:
             opciones_navegacion = ["Acceso / Ingreso"]
 
+        indice_seccion = (
+            opciones_navegacion.index(st.session_state.seccion_navegacion)
+            if st.session_state.get("seccion_navegacion") in opciones_navegacion
+            else 0
+        )
+
         seccion = st.radio(
             "Navegación",
             opciones_navegacion,
-            index=0,
+            index=indice_seccion,
         )
+        st.session_state.seccion_navegacion = seccion
 
         st.divider()
         st.subheader("Estado de Integraciones")
@@ -193,6 +202,9 @@ def main() -> None:
 
     elif seccion == "Exploración Visual":
         renderizar_pantalla_captura(config)
+
+    elif seccion == "Historial de Exploraciones":
+        renderizar_pantalla_historial(config)
 
     elif seccion == "Prácticas y Cuestionarios":
         st.header("📝 Prácticas y Cuestionarios")
