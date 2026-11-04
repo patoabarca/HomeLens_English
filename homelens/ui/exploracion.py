@@ -14,6 +14,7 @@ import streamlit.components.v1 as components
 from homelens.modelos import Exploracion, ImagenPreparada, EstadoAnalisis
 from homelens.exploracion import dibujar_recuadros, PALETA_COLORES_OBJETOS
 from homelens.ui.estado import descartar_imagen_actual
+from homelens.ui.audio import mostrar_controles_audio
 
 
 def _cb_enfocar_objeto_tarjeta(
@@ -285,3 +286,4 @@ def mostrar_exploracion(
                 > *"{frase_es_esc}"*
                 """
             )
+            mostrar_controles_audio(exploracion, obj)

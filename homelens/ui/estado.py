@@ -61,6 +61,8 @@ def limpiar_datos_exploracion() -> None:
     4. Permitir que la Tarea 5 (Autenticación de Lucas) limpie todos los datos
        privados al cerrar sesión, al expirar el token o al cambiar de usuario.
     """
+    from homelens.ui.audio import limpiar_audio_sesion_ui
+    limpiar_audio_sesion_ui()
     if st.session_state.get("imagen_preparada") is not None:
         liberar_imagen(st.session_state.imagen_preparada)
     st.session_state.imagen_cargada_bytes = None
@@ -112,6 +114,9 @@ def limpiar_estado_sesion() -> None:
 
 def cerrar_sesion_usuario(config: Optional[Any] = None) -> None:
     """Cierra la sesión activa del usuario, invalida tokens y limpia datos temporales."""
+    # Descartar el audio incluso si la revocación remota encuentra un error.
+    from homelens.ui.audio import limpiar_audio_sesion_ui
+    limpiar_audio_sesion_ui()
     usuario_actual = st.session_state.get("usuario")
     sesion_id = usuario_actual.sesion_id if usuario_actual else None
 
