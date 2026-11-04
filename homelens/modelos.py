@@ -184,6 +184,15 @@ class Exploracion:
             raise ValueError("Una exploración puede tener como máximo 5 objetos educativos.")
 
 
+@dataclass(frozen=True)
+class ResumenExploracion:
+    """Resumen liviano de una exploración para listados y vistas de historial."""
+    exploracion_id: UUID
+    creada_en: datetime
+    cantidad_objetos: int
+    titulos_objetos: list[str]
+
+
 # =====================================================================
 # 4. Desafíos Find It e Intentos de Práctica
 # =====================================================================
