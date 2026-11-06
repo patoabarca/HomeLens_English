@@ -10,6 +10,7 @@ from homelens.errores import Resultado
 from homelens.modelos import (
     ContextoUsuario,
     Exploracion,
+    ResumenExploracion,
     ObjetoEducativo,
     Actividad,
     DesafioFindIt,
@@ -33,6 +34,13 @@ class RepositorioHomeLens(ABC):
         self, usuario: ContextoUsuario, exploracion_id: UUID
     ) -> Resultado[Exploracion]:
         """Obtiene una exploración verificando que pertenezca al usuario."""
+        pass
+
+    @abstractmethod
+    def listar_exploraciones(
+        self, usuario: ContextoUsuario, limite: int = 50
+    ) -> Resultado[List[ResumenExploracion]]:
+        """Lista las exploraciones previas guardadas por el usuario."""
         pass
 
     @abstractmethod

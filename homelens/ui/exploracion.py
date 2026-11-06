@@ -14,6 +14,7 @@ import streamlit.components.v1 as components
 from homelens.modelos import Exploracion, ImagenPreparada, EstadoAnalisis
 from homelens.exploracion import dibujar_recuadros, PALETA_COLORES_OBJETOS
 from homelens.ui.estado import descartar_imagen_actual
+from homelens.ui.audio import mostrar_controles_audio
 
 
 def _cb_enfocar_objeto_tarjeta(
@@ -103,8 +104,35 @@ def mostrar_exploracion(
         return
 
     st.divider()
-    st.header("🔍 Exploración Visual y Vocabulario")
-    st.caption("Objetos identificados en tu entorno para aprender inglés:")
+    col_cabecera, col_guardar = st.columns([3, 1])
+    with col_cabecera:
+        st.header("🔍 Exploración Visual y Vocabulario")
+        st.caption("Objetos identificados en tu entorno para aprender inglés:")
+    with col_guardar:
+        usuario_actual = st.session_state.get("usuario")
+        if usuario_actual is not None:
+            guardadas = st.session_state.get("exploraciones_guardadas_ids", set())
+            es_guardada = exploracion.exploracion_id in guardadas
+            if es_guardada:
+                st.success("✅ Guardada")
+            else:
+                if st.button("💾 Guardar", key=f"btn_guardar_{exploracion.exploracion_id}", use_container_width=True, help="Guardar esta exploración en tu historial privado"):
+                    from homelens.datos.supabase import RepositorioSupabase
+                    from homelens.config import cargar_configuracion
+                    cfg = cargar_configuracion().valor
+                    repo = RepositorioSupabase(
+                        supabase_url=cfg.supabase_url if cfg else None,
+                        anon_key=cfg.supabase_anon_key if cfg else None,
+                        almacen_demo=st.session_state.get("_exploraciones_demo"),
+                    )
+                    res_g = repo.guardar_exploracion(usuario_actual, exploracion)
+                    if res_g.ok:
+                        guardadas.add(exploracion.exploracion_id)
+                        st.session_state.exploraciones_guardadas_ids = guardadas
+                        st.toast("✅ ¡Exploración guardada en tu historial!")
+                        st.rerun()
+                    else:
+                        st.error(res_g.error.mensaje_usuario if res_g.error else "Error al guardar.")
 
     # 3. Control de selección táctil entre objetos
     opciones_seleccion = ["👁️ Ver todos"] + [
@@ -285,3 +313,21 @@ def mostrar_exploracion(
                 > *"{frase_es_esc}"*
                 """
             )
+            # Controles de audio bajo demanda (M5 - Victoria)
+            mostrar_controles_audio(exploracion, obj)
+
+    # 6. Invitación al Cuestionario Interactivo de la Exploración (M6 - Tarea 9)
+    if exploracion.actividades:
+        st.divider()
+        st.markdown(
+            f"""
+            <div style='background-color: rgba(2, 132, 199, 0.05); border: 1px solid rgba(2, 132, 199, 0.3); padding: 16px 20px; border-radius: 10px; margin-top: 10px; margin-bottom: 12px;'>
+                <h4 style='margin: 0 0 6px 0; color: #0284c7;'>📝 Cuestionario Interactivo</h4>
+                <p style='margin: 0; font-size: 0.95em;'>Esta fotografía cuenta con <strong>{len(exploracion.actividades)} actividad(es) educativa(s)</strong> para poner a prueba tu vocabulario.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("🚀 Comenzar Cuestionario Interactivo", type="primary", use_container_width=True, key="btn_iniciar_cuestionario_desde_exploracion"):
+            st.session_state.seccion_navegacion = "Prácticas y Cuestionarios"
+            st.rerun()
