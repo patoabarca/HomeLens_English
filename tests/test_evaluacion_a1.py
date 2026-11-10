@@ -3,6 +3,7 @@ import json
 import zipfile
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from scripts.evaluacion.evaluacion_common import coco_to_homelens, read_csv, sha256_file, write_csv
@@ -142,6 +143,53 @@ def test_cvat_pilot_imports_5_images_26_annotations(tmp_path: Path):
     )
 
 
+def test_cvat_importa_json_coco_directo_sin_crear_export_zip(tmp_path: Path):
+    export_zip = tmp_path / "cvat.zip"
+    make_cvat_zip(export_zip, image_count=1, annotation_count=1)
+    with zipfile.ZipFile(export_zip) as archive:
+        coco_json = tmp_path / "instances_default.json"
+        coco_json.write_bytes(archive.read("annotations/instances_default.json"))
+
+    output = tmp_path / "final_normalizado"
+    result = import_cvat(coco_json, output, lote="final_v1", destino="evaluacion_final")
+
+    assert result["counts"]["imagenes"] == 1
+    assert result["counts"]["anotaciones"] == 1
+    assert not (output / "exportaciones").exists()
+    candidate = read_csv(output / "candidatos.csv")[0]
+    assert candidate["estado_revision"] == "pendiente"
+    assert json.loads(read_csv(output / "anotaciones.csv")[0]["bbox_homelens_yxyx"]) == [25, 10, 125, 110]
+
+
+def test_cvat_import_rechaza_ids_de_anotacion_repetidos(tmp_path: Path):
+    coco = {
+        "images": [{"id": 1, "width": 100, "height": 80, "file_name": "one.png"}],
+        "categories": [{"id": 1, "name": "Chair"}],
+        "annotations": [
+            {"id": 1, "image_id": 1, "category_id": 1, "bbox": [1, 1, 10, 10]},
+            {"id": 1, "image_id": 1, "category_id": 1, "bbox": [20, 1, 10, 10]},
+        ],
+    }
+    coco_json = tmp_path / "instances_default.json"
+    coco_json.write_text(json.dumps(coco), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="identificadores de anotación"):
+        import_cvat(coco_json, tmp_path / "output")
+
+
+def test_cvat_import_rechaza_coordenadas_no_finitas(tmp_path: Path):
+    coco = {
+        "images": [{"id": 1, "width": 100, "height": 80, "file_name": "one.png"}],
+        "categories": [{"id": 1, "name": "Chair"}],
+        "annotations": [{"id": 1, "image_id": 1, "category_id": 1, "bbox": [1, 1, float("nan"), 10]}],
+    }
+    coco_json = tmp_path / "instances_default.json"
+    coco_json.write_text(json.dumps(coco), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Bounding box inválido"):
+        import_cvat(coco_json, tmp_path / "output")
+
+
 def test_cvat_import_rejects_duplicate_annotation_image_ids(tmp_path: Path):
     export = tmp_path / "invalido.zip"
     coco = {
@@ -250,14 +298,33 @@ def test_gallery_is_simplified_and_exports_review_decisions(tmp_path: Path):
 
     output = generate(tmp_path, tmp_path / "revision_visual.html")
     page = output.read_text(encoding="utf-8")
-    assert "¿Anotaciones correctas?" in page
-    assert "Pendiente de revisar" in page
+    assert "Estado de revisión" in page
+    assert "Pendiente de revisión" in page
+    assert "Aprobada" in page
+    assert "Requiere corrección" in page
     assert "Observaciones" in page
     assert "Puntaje:" not in page
     assert ">Ambiente<" not in page
     assert ">Iluminación<" not in page
     assert ">Dificultad<" not in page
     assert '"image_id","open_images_id","ruta_relativa","aceptada","observaciones"' in page
+
+
+def test_gallery_muestra_identificador_de_anotacion(tmp_path: Path):
+    write_csv(
+        tmp_path / "candidatos.csv",
+        ["image_id", "ruta_relativa", "aceptada"],
+        [{"image_id": "cvat_test_1", "ruta_relativa": "missing.png", "aceptada": "pendiente"}],
+    )
+    write_csv(
+        tmp_path / "anotaciones.csv",
+        ["image_id", "categoria", "bbox_homelens_yxyx", "cvat_annotation_id"],
+        [{"image_id": "cvat_test_1", "categoria": "Chair", "bbox_homelens_yxyx": "[0,0,500,500]", "cvat_annotation_id": "42"}],
+    )
+
+    output = generate(tmp_path, tmp_path / "revision_visual.html")
+
+    assert "Chair #42" in output.read_text(encoding="utf-8")
 
 
 def test_review_import_updates_decisions_and_selection(tmp_path: Path):

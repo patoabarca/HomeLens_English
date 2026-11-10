@@ -27,6 +27,13 @@ def sin_red(monkeypatch):
     monkeypatch.setenv("GEMINI_MODEL", "gemini-2.5-flash")
     monkeypatch.setenv("GEMINI_MAX_RETRIES", "0")
     monkeypatch.setenv("GEMINI_API_KEY", "credencial-simulada-no-real")
+    cargar_configuracion = runner.cargar_configuracion
+
+    def cargar_configuracion_sin_dotenv(**kwargs):
+        kwargs["cargar_archivo_env"] = False
+        return cargar_configuracion(**kwargs)
+
+    monkeypatch.setattr(runner, "cargar_configuracion", cargar_configuracion_sin_dotenv)
 
 
 @pytest.fixture
@@ -412,7 +419,7 @@ def test_separacion_final_y_piloto():
     runner.validar_separacion(final, piloto)
 
 
-def test_final_reservado_y_congelacion(dataset):
+def test_final_admite_simulacion_y_requiere_protocolo_para_real(dataset):
     path, root, photos = dataset
     piloto_path = path.parent / "piloto.json"
     piloto_path.write_bytes(path.read_bytes())
@@ -422,9 +429,13 @@ def test_final_reservado_y_congelacion(dataset):
     write_csv(root / "candidatos.csv", list(rows[0]), rows)
     final = preparar_manifest(root, photos, "evaluacion_final", "sintetica")
     guardar_json(path, final)
-    with pytest.raises(ValueError, match="reservado"):
-        runner.ejecutar(path, "final")
-    assert not (runner.RESULTADOS / "final").exists()
+    run = runner.ejecutar(path, "final", limit=1)
+    record = json.loads(next(run.glob("*/intento_0001.json")).read_text(encoding="utf-8"))
+    assert record["modo"] == "simulado"
+    assert record["conjunto"] == "evaluacion_final"
+    with pytest.raises(ValueError, match="protocolo congelado"):
+        runner.ejecutar(path, "final_real", real=True, autorizar_api=True)
+    assert not (runner.RESULTADOS / "final_real").exists()
     with pytest.raises(ValueError):
         runner.congelar(path, piloto_path, path.parent / "protocolo.json")
 
@@ -476,6 +487,44 @@ def test_protocolo_final_30_metadatos_sin_abrir_fotos(dataset, tmp_path, monkeyp
     with pytest.raises(ValueError, match="protocolo"):
         runner.ejecutar(final_path, "final_bloqueado", real=True, autorizar_api=True, protocolo=protocol)
     assert not (runner.RESULTADOS / "final_bloqueado").exists()
+
+
+def test_simulacion_final_pendiente_usa_fixture_sin_protocolo_ni_api(dataset_final):
+    manifest_path, _, _ = dataset_final
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for image in manifest["imagenes"]:
+        image["revision_humana"] = "pendiente"
+    guardar_json(manifest_path, manifest)
+
+    run = runner.ejecutar(manifest_path, "simulacion_final_controlada", limit=1)
+
+    record = json.loads(next(run.glob("*/intento_0001.json")).read_text(encoding="utf-8"))
+    assert record["modo"] == "simulado"
+    assert record["conjunto"] == "evaluacion_final"
+    assert record["estado"] == "valida"
+    assert record["llamadas"]
+
+
+def test_final_pendiente_rechaza_ejecucion_real_antes_del_cliente(dataset_final, monkeypatch):
+    manifest_path, pilot_path, _ = dataset_final
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["imagenes"][0]["revision_humana"] = "pendiente"
+    guardar_json(manifest_path, manifest)
+    config = {"modo": "real", "modelo": "test"}
+    app_config = SimpleNamespace(gemini_api_key="sentinel-no-real")
+    monkeypatch.setattr(runner, "configuracion", lambda simulated: (config, app_config))
+    protocol = pilot_path.parent / "protocolo_final_bloqueado.json"
+    runner.congelar(manifest_path, pilot_path, protocol)
+
+    with pytest.raises(ValueError, match="revisión humana aprobada"):
+        runner.ejecutar(
+            manifest_path,
+            "final_pendiente_bloqueado",
+            real=True,
+            autorizar_api=True,
+            protocolo=protocol,
+        )
+    assert not (runner.RESULTADOS / "final_pendiente_bloqueado").exists()
 
 
 def test_referencia_faltante_y_respuesta_sin_objetos(dataset, monkeypatch, tmp_path):

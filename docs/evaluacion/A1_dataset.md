@@ -105,7 +105,7 @@ La procedencia, los permisos, la autoría, la calidad y el estado de revisión d
 Open Images V7 informa licencias generales, pero una condición global no garantiza la situación jurídica individual de cada fotografía. La atribución y licencia de cada imagen se mantiene pendiente hasta obtener y verificar datos disponibles. Deben evitarse imágenes innecesariamente sensibles. Las fotos descargadas deben conservarse fuera de Git y no redistribuirse sin comprobar cada obligación aplicable.
 
 ## Estado actual
-El piloto CVAT tiene sus cinco fotografías aceptadas y revisadas; siguen pendientes los permisos y la documentación de procedencia indicados al final. La preparación del conjunto final de 30 imágenes aún no está completa. Como antecedente, se realizó una muestra controlada de Open Images:
+El piloto CVAT tiene sus cinco fotografías aceptadas y revisadas; siguen pendientes los permisos y la documentación de procedencia indicados al final. El conjunto sintético final de 30 imágenes ya está incorporado, normalizado y validado técnicamente, pero sus 30 imágenes continúan pendientes de revisión visual humana y no está congelado. El informe de incorporación está en [ENTREGA_DATASET_EVALUACION_FINAL.md](ENTREGA_DATASET_EVALUACION_FINAL.md). Como antecedente, se realizó una muestra controlada de Open Images:
 
 - 10 imágenes obtenidas desde el split `validation` de Open Images V7.
 - 101 anotaciones individuales exportadas.

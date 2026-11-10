@@ -46,7 +46,8 @@ tmp/
 
 # A2-A4: respuestas y revisiones pueden contener datos privados
 /data/evaluacion/resultados/
-/data/evaluacion/cvat/finales/
+/data/evaluacion/cvat/finales/*
+!/data/evaluacion/cvat/finales/evaluacion_sintetica_lucas_v1/
 /data/**/imagenes/
 /data/**/fotografias_originales/
 /data/**/exportaciones/

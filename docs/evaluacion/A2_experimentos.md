@@ -42,33 +42,32 @@ python -m scripts.evaluacion.ejecutar_experimento ejecutar --manifest data/evalu
 
 Selecciona **una imagen**. El adaptador puede hacer un segundo intento si `GEMINI_MAX_RETRIES=1`, como la aplicación. Para autorizar exactamente una petición y sin reintentos, fijar previamente `$env:GEMINI_MAX_RETRIES = "0"`; queda registrado como cambio de configuración. No se estiman costos ni tokens ausentes.
 
-## Incorporar las 30 fotografías de Lucas
+## Incorporar las 30 fotografías sintéticas de Lucas
 
-Antes de etiquetar, consultar la [guía breve para Lucas](GUIA_LUCAS_ETIQUETADO_FINAL.md), con los controles de categorías, instancias, recuadros y procedencia derivados del piloto.
+Las 30 imágenes de evaluación están incorporadas en `data/evaluacion/cvat/finales/evaluacion_sintetica_lucas_v1`. El archivo RAR original se conserva localmente, fuera de Git. Se preservan el COCO original y una copia normalizada que unifica únicamente `Coffee table`/`Coffee Table`; `transformaciones.json` y el informe de entrega registran hashes y cambios. El importador admite COCO JSON extraído además de los ZIP CVAT habituales. La procedencia y el alcance de uso están documentados sin atribuir licencias ni permisos adicionales.
 
-1. Anotar todas las fotografías nuevas en CVAT y exportar COCO 1.0. Mantener ZIP y originales en los directorios privados. No usar imágenes finales para ajustar repetidamente prompt o criterios.
-2. Usar el importador existente con un lote/destino nuevo. Los comandos siguientes son futuros; no se ejecutaron sin los archivos.
-
-```powershell
-python -m scripts.evaluacion.importar_cvat --export-zip data/evaluacion/cvat/lucas_final_v1.zip --output data/evaluacion/cvat/finales/lucas_final_v1 --lote lucas_final_v1 --destino evaluacion_final --fotografias-originales data/evaluacion/cvat/fotografias_originales/lucas_final_v1
-python -m scripts.evaluacion.generar_galeria_revision --root data/evaluacion/cvat/finales/lucas_final_v1
-# Revisar la galería y exportar decisiones humanas antes del comando siguiente.
-python -m scripts.evaluacion.importar_revision --root data/evaluacion/cvat/finales/lucas_final_v1 --revision-csv data/evaluacion/cvat/finales/lucas_final_v1/seleccion_revision.csv
-python -m scripts.evaluacion.validar_dataset --root data/evaluacion/cvat/finales/lucas_final_v1
-python -m scripts.evaluacion.ejecutar_experimento preparar --root data/evaluacion/cvat/finales/lucas_final_v1 --fotos-root data/evaluacion/cvat/fotografias_originales/lucas_final_v1 --conjunto evaluacion_final --manifest data/evaluacion/resultados/manifest_final_v1.json
-```
-
-3. Completar por imagen, en el manifiesto, `origen`, `permisos` y `exhaustiva` (booleano, false por defecto). Confirmar exhaustividad exige revisión específica; haber etiquetado con CVAT no basta. Se conservan las fuentes reales/sintéticas separadas para el análisis. Los manifiestos nuevos tienen hash de los CSV/JSON de A1; si A1 cambia, preparar otra versión del manifiesto, nunca modificar el hash para saltar controles.
-4. Fijar las decisiones metodológicas usando sólo el piloto y congelar antes de ejecutar el conjunto final:
+La validación técnica no reemplaza la revisión visual: inicialmente las 30 filas están pendientes. Generar o volver a abrir la galería y guardar las decisiones antes de cualquier evaluación real:
 
 ```powershell
-python -m scripts.evaluacion.ejecutar_experimento congelar --manifest data/evaluacion/resultados/manifest_final_v1.json --piloto-manifest data/evaluacion/resultados/manifest_piloto_v1.json --protocolo data/evaluacion/resultados/protocolo_final_v1.json
-# Sólo tras autorización de las llamadas reales:
-python -m scripts.evaluacion.ejecutar_experimento ejecutar --manifest data/evaluacion/resultados/manifest_final_v1.json --run-id gemini_final_v1 --protocolo data/evaluacion/resultados/protocolo_final_v1.json --real --autorizar-api
-python -m scripts.evaluacion.informe_metricas --run data/evaluacion/resultados/gemini_final_v1
+python -m scripts.evaluacion.generar_galeria_revision --root data/evaluacion/cvat/finales/evaluacion_sintetica_lucas_v1
+# Abrir revision_visual.html, revisar las 30 imágenes y descargar el CSV de decisiones.
+# Guardarlo como seleccion_revision.csv en la carpeta del conjunto.
+python -m scripts.evaluacion.importar_revision --root data/evaluacion/cvat/finales/evaluacion_sintetica_lucas_v1 --revision-csv data/evaluacion/cvat/finales/evaluacion_sintetica_lucas_v1/seleccion_revision.csv
+python -m scripts.evaluacion.validar_dataset --root data/evaluacion/cvat/finales/evaluacion_sintetica_lucas_v1
 ```
 
-El protocolo fija prompt, modelo, esquema, dependencias, código, sinónimos, umbral y manifiesto. Se comprueba separación por ID y hash contra el piloto, y se exigen 30 fotografías para la ejecución final. La preparación del manifiesto y congelación leen metadatos, sin analizar las fotografías. No se permite simular sobre el conjunto final. La reserva también depende de la disciplina del equipo: no existe un bloqueo contra inspecciones manuales o ediciones deliberadas de archivos.
+Al completar la revisión, volver a preparar una versión nueva del manifiesto final; marcar `permisos` como `confirmados` según el alcance documentado y dejar `exhaustiva=false` salvo confirmación humana específica. No sobrescribir el manifiesto anterior. Sólo entonces congelar el protocolo basado en el piloto, comprobar separación por ID/hash y ejecutar una prueba real pequeña tras autorización expresa.
+
+La simulación con el fixture local sí puede ejecutarse sobre el conjunto final para validar el circuito, sin protocolo ni acceso a Gemini:
+
+```powershell
+python -m scripts.evaluacion.ejecutar_experimento ejecutar --manifest data/evaluacion/resultados/manifest_evaluacion_sintetica_lucas_v1.json --run-id simulacion_validacion_evaluacion_sintetica_lucas_v1
+python -m scripts.evaluacion.informe_metricas --run data/evaluacion/resultados/simulacion_validacion_evaluacion_sintetica_lucas_v1
+```
+
+La respuesta fija no depende de las imágenes ni de CVAT; no es una métrica de rendimiento. La simulación omite la carga de `.env` y la lectura de claves. Las ejecuciones reales siguen requiriendo el protocolo congelado, las 30 imágenes, procedencia/permisos confirmados y aprobación humana para cada imagen seleccionada.
+
+El protocolo fija prompt, modelo, esquema, dependencias, código, sinónimos, umbral y manifiesto. La preparación del manifiesto y la congelación leen metadatos, sin analizar las fotografías. La reserva también depende de la disciplina del equipo: no existe un bloqueo contra inspecciones manuales o ediciones deliberadas de archivos.
 
 ## Archivos de salida y privacidad
 

@@ -64,8 +64,14 @@ def preparar_manifest(root: Path, fotos_root: Path, conjunto: str, origen: str =
     images = []
     for row in candidates:
         identificador(row["image_id"])
-        if row.get("fuente") != "CVAT" or row.get("destino") != conjunto or row.get("aceptada") != "si":
-            raise ValueError("Se requieren fotografías CVAT aceptadas y del conjunto solicitado")
+        accepted = row.get("aceptada")
+        if (
+            row.get("fuente") != "CVAT"
+            or row.get("destino") != conjunto
+            or accepted not in {"si", "pendiente"}
+            or (accepted == "pendiente" and conjunto != "evaluacion_final")
+        ):
+            raise ValueError("Se requieren fotografías CVAT del conjunto solicitado; las finales pueden seguir pendientes de revisión")
         if not re.fullmatch(r"[a-f0-9]{64}", row.get("sha256", "")):
             raise ValueError("Falta hash de imagen en A1")
         if not row.get("ruta_relativa"):
@@ -75,7 +81,8 @@ def preparar_manifest(root: Path, fotos_root: Path, conjunto: str, origen: str =
         if int(row["cantidad_objetos"]) != len(refs):
             raise ValueError("Cantidad de objetos incompatible con A1")
         images.append({"image_id": row["image_id"], "sha256": row["sha256"],
-                       "origen": origen, "permisos": "pendiente", "exhaustiva": False})
+                       "origen": origen, "permisos": "pendiente", "exhaustiva": False,
+                       "revision_humana": "aprobada" if accepted == "si" else "pendiente"})
     files = ["candidatos.csv", "anotaciones.csv", "imagenes_normalizadas.json", "procedencia.json", "seleccion.csv"]
     return {"version": 1, "conjunto": conjunto, "root": str(root.relative_to(PROYECTO)),
             "fotos_root": str(fotos_root.relative_to(PROYECTO)),
@@ -93,6 +100,8 @@ def cargar_dataset(manifest_path: Path) -> tuple[dict, list[dict]]:
     for image in manifest["imagenes"]:
         if image["origen"] not in {"real", "sintetica", "pendiente"} or type(image["exhaustiva"]) is not bool:
             raise ValueError("Metadatos de revisión inválidos")
+        if image.get("revision_humana", "aprobada") not in {"pendiente", "aprobada"}:
+            raise ValueError("Estado de revisión humana inválido")
     return manifest, read_csv(PROYECTO / manifest["root"] / "anotaciones.csv")
 
 

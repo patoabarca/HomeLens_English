@@ -1,0 +1,39 @@
+{
+  "source_archive": "insumos _locales/HomeLens_English.rar",
+  "source_archive_sha256": "87166269149ac977815d5ba1fda84ef0fa40cf6aa0a6f2df4766d67a2d63208d",
+  "extraction": {
+    "tool": "Windows tar",
+    "command_template": "tar -xf <source.rar> -C <new-empty-temporary-directory>",
+    "safety_checks": "Archive paths were checked to remain under HomeLens_English; only regular files/directories were accepted."
+  },
+  "source_coco": "annotations/instances_default.json",
+  "source_coco_sha256": "25697abb6e5359fe65e05ba264c55e116123a50ee9445f24b37bfa1123596ba0",
+  "normalized_coco": "annotations/instances_normalized.json",
+  "normalized_coco_sha256": "512d3dcb324d95b8b8f7bd158d292627d9ea3f3034af2f86122442218a57d06f",
+  "images": {
+    "count": 30,
+    "operation": "byte-for-byte copy; no recompression, resizing, or EXIF rewrite",
+    "sha256_manifest": "manifiesto_imagenes.csv"
+  },
+  "coco": {
+    "images": 30,
+    "annotations_original": 541,
+    "annotations_normalized": 541,
+    "categories_original": 80,
+    "categories_normalized": 79,
+    "normalization": "Only case-insensitive duplicate category names were unified; original COCO remains unchanged.",
+    "coordinate_conversion": "The existing CVAT importer applies coco_to_homelens once from [x,y,width,height] pixels to HomeLens [ymin,xmin,ymax,xmax] on a 0-1000 scale.",
+    "import_command": "python -m scripts.evaluacion.importar_cvat --coco-json data/evaluacion/cvat/finales/evaluacion_sintetica_lucas_v1/annotations/instances_normalized.json --output data/evaluacion/cvat/finales/evaluacion_sintetica_lucas_v1 --lote evaluacion_sintetica_lucas_v1 --destino evaluacion_final --fotografias-originales data/evaluacion/cvat/finales/evaluacion_sintetica_lucas_v1/images"
+  },
+  "category_mapping": [
+    {
+      "from_id": 22,
+      "from_name": "Coffee table",
+      "to_id": 45,
+      "to_name": "Coffee Table",
+      "annotation_references_updated": 0
+    }
+  ],
+  "pilot_hash_overlap": 0,
+  "pilot_files_compared": 5
+}

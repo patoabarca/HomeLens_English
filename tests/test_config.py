@@ -3,6 +3,7 @@
 import os
 import tempfile
 import unittest
+from unittest import mock
 from homelens.config import cargar_configuracion
 
 
@@ -28,6 +29,22 @@ class TestConfiguracion(unittest.TestCase):
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+
+    def test_cargar_configuracion_sin_archivo_ni_secretos(self):
+        variables = {
+            "GEMINI_API_KEY": "sentinel-no-real",
+            "SUPABASE_URL": "https://example.invalid",
+            "SUPABASE_ANON_KEY": "sentinel-no-real",
+            "SUPABASE_SERVICE_ROLE_KEY": "sentinel-no-real",
+        }
+        with mock.patch.dict(os.environ, variables):
+            res = cargar_configuracion(cargar_archivo_env=False, incluir_secretos=False)
+
+        self.assertTrue(res.ok)
+        self.assertIsNone(res.valor.gemini_api_key)
+        self.assertIsNone(res.valor.supabase_url)
+        self.assertIsNone(res.valor.supabase_anon_key)
+        self.assertIsNone(res.valor.supabase_service_role_key)
 
 
 if __name__ == "__main__":

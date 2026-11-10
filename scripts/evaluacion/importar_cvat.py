@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import shutil
 from collections import Counter
 from pathlib import Path
@@ -77,9 +78,12 @@ def import_cvat(
         raise FileNotFoundError(export_zip)
 
     try:
-        coco_path = find_coco_file(export_zip)
-        with ZipFile(export_zip, "r") as archive:
-            coco = json.loads(archive.read(coco_path).decode("utf-8-sig"))
+        if export_zip.suffix.lower() == ".json":
+            coco = json.loads(export_zip.read_text(encoding="utf-8-sig"))
+        else:
+            coco_path = find_coco_file(export_zip)
+            with ZipFile(export_zip, "r") as archive:
+                coco = json.loads(archive.read(coco_path).decode("utf-8-sig"))
     except BadZipFile as exc:
         raise ValueError("El archivo no es un ZIP válido") from exc
 
@@ -95,6 +99,16 @@ def import_cvat(
         raise ValueError("Hay identificadores de categoría duplicados")
     if len(image_by_id) != len(images):
         raise ValueError("Hay identificadores de fotografía duplicados en COCO")
+    filenames = [image.get("file_name") for image in images]
+    if any(not isinstance(name, str) or not name for name in filenames) or len(set(filenames)) != len(filenames):
+        raise ValueError("Los nombres de archivo COCO deben ser únicos y no vacíos")
+    annotation_ids = [annotation.get("id") for annotation in annotations]
+    try:
+        unique_annotation_ids = len(set(annotation_ids)) == len(annotation_ids)
+    except TypeError:
+        unique_annotation_ids = False
+    if any(value is None or value == "" for value in annotation_ids) or not unique_annotation_ids:
+        raise ValueError("Los identificadores de anotación deben ser únicos y no vacíos")
 
     normalized_annotations = []
     annotation_counts = Counter()
@@ -107,12 +121,17 @@ def import_cvat(
         if category_id not in category_ids:
             raise ValueError(f"La anotación referencia una categoría inexistente: {category_id}")
         image = image_by_id[image_id]
-        width = int(image["width"])
-        height = int(image["height"])
+        width, height = image.get("width"), image.get("height")
+        if type(width) is not int or type(height) is not int or width <= 0 or height <= 0:
+            raise ValueError(f"Dimensiones inválidas para la fotografía {image_id}")
         box = annotation.get("bbox")
-        if not isinstance(box, list) or len(box) != 4:
+        if (
+            not isinstance(box, list)
+            or len(box) != 4
+            or any(type(value) not in (int, float) or not math.isfinite(value) for value in box)
+        ):
             raise ValueError(f"Bounding box inválido para la anotación {annotation.get('id')}")
-        home_box = coco_to_homelens([float(value) for value in box], width, height)
+        home_box = coco_to_homelens(box, width, height)
         xmin, ymin, box_width, box_height = [float(value) for value in box]
         normalized_original = [
             xmin / width,
@@ -135,9 +154,10 @@ def import_cvat(
         used_categories[category_ids[category_id]] += 1
 
     output.mkdir(parents=True, exist_ok=True)
-    export_dir = output / "exportaciones"
-    export_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(export_zip, export_dir / export_zip.name)
+    if export_zip.suffix.lower() != ".json":
+        export_dir = output / "exportaciones"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(export_zip, export_dir / export_zip.name)
 
     if fotografias_originales is None:
         fotografias_originales = output.parents[1] / "fotografias_originales" / lote
@@ -228,6 +248,7 @@ def import_cvat(
                 category_ids[a["category_id"]] for a in annotations if a["image_id"] == image["id"]
             }), ensure_ascii=False),
             "aceptada": "pendiente",
+            "estado_revision": "pendiente",
             "motivo_descarte": "",
             "ambiente": "pendiente",
             "sha256": image_hash,
@@ -326,7 +347,9 @@ def import_cvat(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Importa exportaciones CVAT COCO 1.0 a metadatos HomeLens")
-    parser.add_argument("--export-zip", type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--export-zip", type=Path)
+    source.add_argument("--coco-json", type=Path, help="Archivo COCO JSON extraído de una exportación")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--lote", default="piloto")
     parser.add_argument("--destino", choices=["piloto", "evaluacion_final", "pendiente"], default="piloto")
@@ -343,7 +366,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         result = import_cvat(
-            args.export_zip,
+            args.export_zip or args.coco_json,
             args.output,
             args.lote,
             args.destino,

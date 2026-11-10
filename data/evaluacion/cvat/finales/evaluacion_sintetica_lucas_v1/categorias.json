@@ -1,0 +1,397 @@
+[
+  {
+    "id": 1,
+    "name": "Chair",
+    "supercategory": ""
+  },
+  {
+    "id": 2,
+    "name": "Table",
+    "supercategory": ""
+  },
+  {
+    "id": 3,
+    "name": "Book",
+    "supercategory": ""
+  },
+  {
+    "id": 4,
+    "name": "Laptop",
+    "supercategory": ""
+  },
+  {
+    "id": 5,
+    "name": "Lamp",
+    "supercategory": ""
+  },
+  {
+    "id": 6,
+    "name": "Bed",
+    "supercategory": ""
+  },
+  {
+    "id": 7,
+    "name": "Sofa",
+    "supercategory": ""
+  },
+  {
+    "id": 8,
+    "name": "Television",
+    "supercategory": ""
+  },
+  {
+    "id": 9,
+    "name": "Refrigerator",
+    "supercategory": ""
+  },
+  {
+    "id": 10,
+    "name": "Cabinet",
+    "supercategory": ""
+  },
+  {
+    "id": 11,
+    "name": "Towel",
+    "supercategory": ""
+  },
+  {
+    "id": 12,
+    "name": "Pillow",
+    "supercategory": ""
+  },
+  {
+    "id": 13,
+    "name": "Mirror",
+    "supercategory": ""
+  },
+  {
+    "id": 14,
+    "name": "Rug",
+    "supercategory": ""
+  },
+  {
+    "id": 15,
+    "name": "Toilet",
+    "supercategory": ""
+  },
+  {
+    "id": 16,
+    "name": "Shower Head",
+    "supercategory": ""
+  },
+  {
+    "id": 17,
+    "name": "Sink",
+    "supercategory": ""
+  },
+  {
+    "id": 18,
+    "name": "Window",
+    "supercategory": ""
+  },
+  {
+    "id": 19,
+    "name": "Picture",
+    "supercategory": ""
+  },
+  {
+    "id": 20,
+    "name": "Plant",
+    "supercategory": ""
+  },
+  {
+    "id": 21,
+    "name": "Ceiling Fan",
+    "supercategory": ""
+  },
+  {
+    "id": 23,
+    "name": "Cushion",
+    "supercategory": ""
+  },
+  {
+    "id": 24,
+    "name": "Drapes",
+    "supercategory": ""
+  },
+  {
+    "id": 25,
+    "name": "Stove",
+    "supercategory": ""
+  },
+  {
+    "id": 26,
+    "name": "Kitchen Cabinet",
+    "supercategory": ""
+  },
+  {
+    "id": 27,
+    "name": "Countertop",
+    "supercategory": ""
+  },
+  {
+    "id": 28,
+    "name": "Kitchen Island",
+    "supercategory": ""
+  },
+  {
+    "id": 29,
+    "name": "Kettle",
+    "supercategory": ""
+  },
+  {
+    "id": 30,
+    "name": "Microwave",
+    "supercategory": ""
+  },
+  {
+    "id": 31,
+    "name": "Cup",
+    "supercategory": ""
+  },
+  {
+    "id": 32,
+    "name": "Plate",
+    "supercategory": ""
+  },
+  {
+    "id": 33,
+    "name": "Dish Rack",
+    "supercategory": ""
+  },
+  {
+    "id": 34,
+    "name": "Bidet",
+    "supercategory": ""
+  },
+  {
+    "id": 35,
+    "name": "Shower",
+    "supercategory": ""
+  },
+  {
+    "id": 36,
+    "name": "Bathroom Cabinet",
+    "supercategory": ""
+  },
+  {
+    "id": 37,
+    "name": "Toothbrush",
+    "supercategory": ""
+  },
+  {
+    "id": 38,
+    "name": "Soap Dispenser",
+    "supercategory": ""
+  },
+  {
+    "id": 39,
+    "name": "Bunk Bed",
+    "supercategory": ""
+  },
+  {
+    "id": 40,
+    "name": "Blanket",
+    "supercategory": ""
+  },
+  {
+    "id": 41,
+    "name": "Nightstand",
+    "supercategory": ""
+  },
+  {
+    "id": 42,
+    "name": "Wardrobe",
+    "supercategory": ""
+  },
+  {
+    "id": 43,
+    "name": "Curtain",
+    "supercategory": ""
+  },
+  {
+    "id": 44,
+    "name": "Armchair",
+    "supercategory": ""
+  },
+  {
+    "id": 45,
+    "name": "Coffee Table",
+    "supercategory": ""
+  },
+  {
+    "id": 46,
+    "name": "Ottoman",
+    "supercategory": ""
+  },
+  {
+    "id": 47,
+    "name": "Dining Table",
+    "supercategory": ""
+  },
+  {
+    "id": 48,
+    "name": "Stool",
+    "supercategory": ""
+  },
+  {
+    "id": 49,
+    "name": "Sideboard",
+    "supercategory": ""
+  },
+  {
+    "id": 50,
+    "name": "Wall Clock",
+    "supercategory": ""
+  },
+  {
+    "id": 51,
+    "name": "Desk",
+    "supercategory": ""
+  },
+  {
+    "id": 52,
+    "name": "Monitor",
+    "supercategory": ""
+  },
+  {
+    "id": 53,
+    "name": "Computer Tower",
+    "supercategory": ""
+  },
+  {
+    "id": 54,
+    "name": "Keyboard",
+    "supercategory": ""
+  },
+  {
+    "id": 55,
+    "name": "Mouse",
+    "supercategory": ""
+  },
+  {
+    "id": 56,
+    "name": "Office Chair",
+    "supercategory": ""
+  },
+  {
+    "id": 57,
+    "name": "Air Conditioner",
+    "supercategory": ""
+  },
+  {
+    "id": 58,
+    "name": "Bookshelf",
+    "supercategory": ""
+  },
+  {
+    "id": 59,
+    "name": "Vase",
+    "supercategory": ""
+  },
+  {
+    "id": 60,
+    "name": "Chest",
+    "supercategory": ""
+  },
+  {
+    "id": 61,
+    "name": "Fish Tank",
+    "supercategory": ""
+  },
+  {
+    "id": 62,
+    "name": "Faucet",
+    "supercategory": ""
+  },
+  {
+    "id": 63,
+    "name": "Shower Screen",
+    "supercategory": ""
+  },
+  {
+    "id": 64,
+    "name": "Soap Dish",
+    "supercategory": ""
+  },
+  {
+    "id": 65,
+    "name": "Toilet Paper",
+    "supercategory": ""
+  },
+  {
+    "id": 66,
+    "name": "Toothbrush Holder",
+    "supercategory": ""
+  },
+  {
+    "id": 67,
+    "name": "Cutting Board",
+    "supercategory": ""
+  },
+  {
+    "id": 68,
+    "name": "Pan",
+    "supercategory": ""
+  },
+  {
+    "id": 69,
+    "name": "Utensil Holder",
+    "supercategory": ""
+  },
+  {
+    "id": 70,
+    "name": "Range Hood",
+    "supercategory": ""
+  },
+  {
+    "id": 71,
+    "name": "Fruit Bowl",
+    "supercategory": ""
+  },
+  {
+    "id": 72,
+    "name": "Thermos",
+    "supercategory": ""
+  },
+  {
+    "id": 73,
+    "name": "Electric Kettle",
+    "supercategory": ""
+  },
+  {
+    "id": 74,
+    "name": "Side Table",
+    "supercategory": ""
+  },
+  {
+    "id": 75,
+    "name": "Bar Stool",
+    "supercategory": ""
+  },
+  {
+    "id": 76,
+    "name": "Wood-burning Stove",
+    "supercategory": ""
+  },
+  {
+    "id": 77,
+    "name": "Comforter",
+    "supercategory": ""
+  },
+  {
+    "id": 78,
+    "name": "Headphones",
+    "supercategory": ""
+  },
+  {
+    "id": 79,
+    "name": "Notebook",
+    "supercategory": ""
+  },
+  {
+    "id": 80,
+    "name": "Shelf",
+    "supercategory": ""
+  }
+]

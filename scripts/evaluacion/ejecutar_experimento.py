@@ -39,7 +39,7 @@ def huella(value: object) -> str:
 
 
 def configuracion(simulada: bool) -> tuple[dict, object]:
-    result = cargar_configuracion()
+    result = cargar_configuracion(cargar_archivo_env=not simulada, incluir_secretos=not simulada)
     if not result.ok:
         raise ValueError("Configuración de HomeLens inválida")
     cfg = result.valor
@@ -161,14 +161,17 @@ def ejecutar(manifest_path: Path, run_id: str, *, real: bool = False, autorizar_
     manifest, annotations = cargar_dataset(manifest_path)
     config, app_cfg = configuracion(not real)
     if manifest["conjunto"] == "evaluacion_final":
-        if not real or not protocolo:
-            raise ValueError("El conjunto final permanece reservado: requiere ejecución real y protocolo congelado")
-        protocol = json.loads(protocolo.read_text(encoding="utf-8"))
-        if protocol["configuracion"] != config or protocol["config_sha256"] != huella(config) or protocol["manifest_sha256"] != sha256_file(manifest_path):
-            raise ValueError("El protocolo no coincide con datos/configuración actuales")
-        validar_separacion(manifest, protocol["piloto"])
-        if len(manifest["imagenes"]) != 30:
-            raise ValueError("El conjunto final debe contener las 30 fotografías previstas")
+        if real:
+            if not protocolo:
+                raise ValueError("La ejecución real final requiere un protocolo congelado")
+            protocol = json.loads(protocolo.read_text(encoding="utf-8"))
+            if protocol["configuracion"] != config or protocol["config_sha256"] != huella(config) or protocol["manifest_sha256"] != sha256_file(manifest_path):
+                raise ValueError("El protocolo no coincide con datos/configuración actuales")
+            validar_separacion(manifest, protocol["piloto"])
+            if len(manifest["imagenes"]) != 30:
+                raise ValueError("El conjunto final debe contener las 30 fotografías previstas")
+        elif protocolo:
+            raise ValueError("La simulación final no utiliza un protocolo de ejecución real")
     images = [x for x in manifest["imagenes"] if image_id is None or x["image_id"] == image_id]
     if not images:
         raise ValueError("No se encontró la imagen solicitada")
@@ -176,6 +179,10 @@ def ejecutar(manifest_path: Path, run_id: str, *, real: bool = False, autorizar_
         images = images[:limit]
     if real and (not app_cfg.gemini_api_key or any(x["origen"] == "pendiente" or x["permisos"] != "confirmados" for x in images)):
         raise ValueError("La ejecución real requiere GEMINI_API_KEY y procedencia/permisos confirmados para las imágenes seleccionadas")
+    if real and manifest["conjunto"] == "evaluacion_final" and any(
+        image.get("revision_humana") != "aprobada" for image in images
+    ):
+        raise ValueError("La ejecución real final requiere revisión humana aprobada para cada imagen seleccionada")
     run = dentro(RESULTADOS / run_id, RESULTADOS)
     identity = {"run_id": run_id, "configuracion": config, "config_sha256": huella(config),
                 "manifest_sha256": sha256_file(manifest_path), "dataset": manifest, "anotaciones": annotations}

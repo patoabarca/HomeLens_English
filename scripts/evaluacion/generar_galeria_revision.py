@@ -54,7 +54,10 @@ def generate(root: Path, output: Path) -> Path:
                 continue
             annotations[image_id(row)].append({
                 "box": css_box,
-                "label": row["categoria"],
+                "label": "{} #{}".format(
+                    row["categoria"],
+                    row.get("cvat_annotation_id") or row.get("annotation_id") or "?",
+                ),
             })
 
     candidates.sort(
@@ -87,18 +90,18 @@ def generate(root: Path, output: Path) -> Path:
         accepted = row.get("aceptada", "pendiente").strip().lower()
         if accepted == "si":
             accepted_options = (
-                '<option value="pendiente">Pendiente de revisar</option>'
-                '<option value="si" selected>Sí</option><option value="no">No</option>'
+                '<option value="pendiente">Pendiente de revisión</option>'
+                '<option value="si" selected>Aprobada</option><option value="no">Requiere corrección</option>'
             )
         elif accepted == "no":
             accepted_options = (
-                '<option value="pendiente">Pendiente de revisar</option>'
-                '<option value="si">Sí</option><option value="no" selected>No</option>'
+                '<option value="pendiente">Pendiente de revisión</option>'
+                '<option value="si">Aprobada</option><option value="no" selected>Requiere corrección</option>'
             )
         else:
             accepted_options = (
-                '<option value="pendiente" selected>Pendiente de revisar</option>'
-                '<option value="si">Sí</option><option value="no">No</option>'
+                '<option value="pendiente" selected>Pendiente de revisión</option>'
+                '<option value="si">Aprobada</option><option value="no">Requiere corrección</option>'
             )
         observations = html.escape(
             row.get("observaciones", "") or row.get("motivo_descarte", ""),
@@ -110,7 +113,7 @@ def generate(root: Path, output: Path) -> Path:
             'data-motivo-descarte="{motivo}" data-destino="{destino}" data-estado-revision="{estado}"></span>'
             '<div class="image-wrap"><img src="{src}" alt="{id}">{boxes}</div>'
             '<div class="meta"><strong>{id}</strong></div>'
-            '<label>¿Anotaciones correctas?<select class="aceptada">'
+            '<label>Estado de revisión<select class="aceptada">'
             '{accepted_options}</select></label>'
             '<label>Observaciones<textarea class="observaciones" rows="3" placeholder="Observaciones opcionales">{observations}</textarea></label>'
             '</article>'.format(

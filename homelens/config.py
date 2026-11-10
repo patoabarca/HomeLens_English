@@ -44,7 +44,12 @@ class Configuracion:
         return bool(self.supabase_url and self.supabase_anon_key)
 
 
-def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configuracion]:
+def cargar_configuracion(
+    ruta_env: Optional[str] = None,
+    *,
+    cargar_archivo_env: bool = True,
+    incluir_secretos: bool = True,
+) -> Resultado[Configuracion]:
     """Carga y valida las variables de entorno desde el archivo .env o el entorno del sistema.
 
     Returns:
@@ -52,10 +57,11 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
     """
     try:
         # Cargar variables de entorno si existe el archivo
-        if ruta_env and os.path.exists(ruta_env):
-            load_dotenv(dotenv_path=ruta_env, override=False)
-        else:
-            load_dotenv(override=False)
+        if cargar_archivo_env:
+            if ruta_env and os.path.exists(ruta_env):
+                load_dotenv(dotenv_path=ruta_env, override=False)
+            else:
+                load_dotenv(override=False)
 
         app_env = os.getenv("APP_ENV", "development").strip().lower()
         debug = os.getenv("DEBUG", "true").strip().lower() in ("true", "1", "yes")
@@ -66,7 +72,7 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
         except ValueError:
             app_port = 8501
 
-        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        gemini_api_key = os.getenv("GEMINI_API_KEY") if incluir_secretos else None
         gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
 
         try:
@@ -79,9 +85,9 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
         except ValueError:
             gemini_max_retries = 1
 
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_anon_key = os.getenv("SUPABASE_ANON_KEY")
-        supabase_service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        supabase_url = os.getenv("SUPABASE_URL") if incluir_secretos else None
+        supabase_anon_key = os.getenv("SUPABASE_ANON_KEY") if incluir_secretos else None
+        supabase_service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") if incluir_secretos else None
 
         google_tts_language_code = os.getenv("GOOGLE_TTS_LANGUAGE_CODE", "en-US").strip()
         google_tts_voice_name = os.getenv("GOOGLE_TTS_VOICE_NAME", "en-US-Standard-C").strip()

@@ -1,0 +1,26 @@
+{
+  "fuente": "CVAT",
+  "formato": "COCO 1.0",
+  "origen_exportacion": "instances_normalized.json",
+  "export_sha256": "512d3dcb324d95b8b8f7bd158d292627d9ea3f3034af2f86122442218a57d06f",
+  "lote": "evaluacion_sintetica_lucas_v1",
+  "destino": "evaluacion_final",
+  "fotografias_originales": "30 imágenes PNG en images/, copiadas sin recomprimir ni redimensionar",
+  "permisos": "Uso en el proyecto HomeLens English autorizado según declaración transmitida por Patricia; no se atribuye licencia ni permiso de redistribución pública",
+  "procedencia_imagenes": {
+    "origen": "sinteticas",
+    "generadas_por": "Lucas Centurión",
+    "herramienta_declarada": "ChatGPT",
+    "declaracion_recibida_por": "Patricia",
+    "autorizacion": "Uso en el proyecto HomeLens English",
+    "licencia": "No especificada",
+    "fecha_generacion": "No declarada",
+    "modelo_generador": "No especificado",
+    "usos_externos_o_redistribucion_publica": "No declarados ni inferidos"
+  },
+  "revision_humana": {
+    "estado": "pendiente",
+    "decisiones_registradas": 0,
+    "calidad_visual_aprobada": false
+  }
+}
