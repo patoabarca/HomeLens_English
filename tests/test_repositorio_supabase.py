@@ -436,6 +436,86 @@ class TestRepositorioSupabase(unittest.TestCase):
         self.assertEqual(auth_header_a, f"Bearer {self.usuario_a.sesion_id}")
         self.assertEqual(auth_header_b, f"Bearer {self.usuario_b.sesion_id}")
 
+    def test_12_rechazo_usuario_no_demo_sin_jwt_valido(self):
+        """Verifica que un usuario autenticado sin JWT (o con token demo) sea rechazado antes de consultar BD."""
+        for token_invalido in ("", "   ", "local_demo_session"):
+            usuario_sin_jwt = ContextoUsuario(
+                user_id=self.user_a_id,
+                sesion_id=token_invalido,
+                email="alumno.a@gmail.com",
+                es_demo=False,
+            )
+            self.assertEqual(
+                self.repo.guardar_exploracion(usuario_sin_jwt, self.exploracion_a).error.codigo,
+                CODIGO_SESION_REQUERIDA,
+            )
+            self.assertEqual(
+                self.repo.obtener_exploracion(usuario_sin_jwt, self.exp_id).error.codigo,
+                CODIGO_SESION_REQUERIDA,
+            )
+            self.assertEqual(
+                self.repo.listar_exploraciones(usuario_sin_jwt).error.codigo,
+                CODIGO_SESION_REQUERIDA,
+            )
+            self.assertEqual(
+                self.repo.listar_vocabulario(usuario_sin_jwt).error.codigo,
+                CODIGO_SESION_REQUERIDA,
+            )
+
+    def test_13_traduccion_error_jwt_y_rls(self):
+        """Comprueba que errores de JWT expirado o rechazo RLS se traduzcan con su código específico."""
+        res_jwt = self.repo._traducir_error_bd(Exception("PGRST301: JWT expired"), "Defecto")
+        self.assertFalse(res_jwt.ok)
+        self.assertEqual(res_jwt.error.codigo, CODIGO_SESION_REQUERIDA)
+        self.assertFalse(res_jwt.error.reintentable)
+
+        res_rls = self.repo._traducir_error_bd(
+            Exception("42501: new row violates row-level security policy"), "Defecto"
+        )
+        self.assertFalse(res_rls.ok)
+        self.assertEqual(res_rls.error.codigo, CODIGO_ACCESO_DENEGADO)
+        self.assertFalse(res_rls.error.reintentable)
+
+    def test_14_rechazo_jwt_invalido_y_rls_en_operaciones_reales(self):
+        """Verifica de extremo a extremo en los métodos del repositorio errores 401/JWT y 42501/RLS."""
+        from unittest.mock import MagicMock
+
+        cliente_jwt_malo = MagicMock()
+        cliente_jwt_malo.table.return_value.select.return_value.eq.return_value.execute.side_effect = Exception(
+            "401 Unauthorized: Invalid JWT"
+        )
+        cliente_jwt_malo.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.side_effect = Exception(
+            "PGRST301: JWT expired"
+        )
+        repo_jwt_malo = RepositorioSupabase(
+            supabase_url="https://test.supabase.co",
+            anon_key="test_anon_key",
+            cliente_supabase=cliente_jwt_malo,
+        )
+        res_g = repo_jwt_malo.guardar_exploracion(self.usuario_a, self.exploracion_a)
+        self.assertFalse(res_g.ok)
+        self.assertEqual(res_g.error.codigo, CODIGO_SESION_REQUERIDA)
+
+        res_o = repo_jwt_malo.obtener_exploracion(self.usuario_a, self.exp_id)
+        self.assertFalse(res_o.ok)
+        self.assertEqual(res_o.error.codigo, CODIGO_SESION_REQUERIDA)
+
+        cliente_rls = MagicMock()
+        cliente_rls.table.return_value.select.return_value.eq.return_value.execute.return_value = MockPostgrestResponse(
+            data=[]
+        )
+        cliente_rls.table.return_value.insert.return_value.execute.side_effect = Exception(
+            "42501: new row violates row-level security policy for table exploraciones"
+        )
+        repo_rls = RepositorioSupabase(
+            supabase_url="https://test.supabase.co",
+            anon_key="test_anon_key",
+            cliente_supabase=cliente_rls,
+        )
+        res_insert_rls = repo_rls.guardar_exploracion(self.usuario_a, self.exploracion_a)
+        self.assertFalse(res_insert_rls.ok)
+        self.assertEqual(res_insert_rls.error.codigo, CODIGO_ACCESO_DENEGADO)
+
 
 class TestHistorialUIFuncional(unittest.TestCase):
     """Pruebas funcionales de los flujos de interfaz y aislamiento del historial (M7)."""

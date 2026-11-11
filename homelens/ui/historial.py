@@ -17,8 +17,14 @@ def renderizar_pantalla_historial(config: Configuracion) -> None:
     """Renderiza la pantalla del historial privado de exploraciones."""
     usuario = st.session_state.get("usuario")
     if usuario is None:
+        st.session_state.exploracion_en_vista_historial = None
         st.warning("🔒 Debes iniciar sesión para acceder a tu historial de exploraciones.")
         return
+
+    # Descartar de inmediato cualquier detalle en vista perteneciente a otro usuario
+    exp_previa = st.session_state.get("exploracion_en_vista_historial")
+    if exp_previa is not None and exp_previa.user_id != usuario.user_id:
+        st.session_state.exploracion_en_vista_historial = None
 
     st.header("📚 Mi Historial de Exploraciones")
     st.caption("Consulta tus exploraciones anteriores y repasa el vocabulario aprendido.")
@@ -88,7 +94,10 @@ def renderizar_pantalla_historial(config: Configuracion) -> None:
                         st.session_state.imagen_asociada_id = None
                         st.session_state.objeto_seleccionado_id = None
 
-                        # Asignar la exploración recuperada como activa
+                        # Asignar la exploración recuperada como activa y marcarla como guardada
+                        guardadas = st.session_state.get("exploraciones_guardadas_ids", set())
+                        guardadas.add(res_recuperar.valor.exploracion_id)
+                        st.session_state.exploraciones_guardadas_ids = guardadas
                         st.session_state.exploracion_actual = res_recuperar.valor
                         st.session_state.exploracion_en_vista_historial = res_recuperar.valor
                         st.toast("✅ Exploración recuperada con éxito.")
@@ -100,8 +109,11 @@ def renderizar_pantalla_historial(config: Configuracion) -> None:
                             else "No fue posible recuperar la exploración."
                         )
 
-    # Vista detallada de la exploración actualmente seleccionada
+    # Vista detallada de la exploración actualmente seleccionada (verificando pertenencia)
     exp_detalle = st.session_state.get("exploracion_en_vista_historial")
+    if exp_detalle is not None and exp_detalle.user_id != usuario.user_id:
+        st.session_state.exploracion_en_vista_historial = None
+        exp_detalle = None
     if exp_detalle is not None:
         st.divider()
         col_det_titulo, col_det_cerrar = st.columns([3, 1])
