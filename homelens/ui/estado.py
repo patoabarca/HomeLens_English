@@ -58,6 +58,8 @@ def inicializar_estado_sesion() -> None:
         st.session_state.mensaje_historial = None
     if "error_historial" not in st.session_state:
         st.session_state.error_historial = None
+    if "exploracion_en_vista_historial" not in st.session_state:
+        st.session_state.exploracion_en_vista_historial = None
     # Estado de cuestionarios pedagógicos (M6 - Tarea 9)
     if "cuestionario_indice_actual" not in st.session_state:
         st.session_state.cuestionario_indice_actual = 0
@@ -111,6 +113,7 @@ def limpiar_datos_exploracion() -> None:
     st.session_state.imagen_preparada = None
     st.session_state.error_preparacion = None
     st.session_state.exploracion_actual = None
+    st.session_state.exploracion_en_vista_historial = None
     st.session_state.objeto_seleccionado_id = None
     st.session_state.error_analisis = None
     st.session_state.imagen_asociada_id = None
@@ -127,6 +130,7 @@ def invalidar_preparacion_anterior() -> None:
     st.session_state.imagen_preparada = None
     st.session_state.error_preparacion = None
     st.session_state.exploracion_actual = None
+    st.session_state.exploracion_en_vista_historial = None
     st.session_state.objeto_seleccionado_id = None
     st.session_state.scroll_hacia_foto = False
     st.session_state.error_analisis = None
@@ -177,6 +181,7 @@ def cerrar_sesion_usuario(config: Optional[Any] = None) -> None:
     st.session_state.seccion_navegacion = "Inicio / Estado"
     st.session_state._exploraciones_demo = {}
     st.session_state.exploraciones_guardadas_ids = set()
+    st.session_state.exploracion_en_vista_historial = None
     st.session_state.mensaje_historial = None
     st.session_state.error_historial = None
 

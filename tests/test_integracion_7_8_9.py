@@ -162,6 +162,7 @@ class TestIntegracionTareas789(unittest.TestCase):
         """Aislamiento total: cerrar sesión descarta audios, cuestionarios e historial de sesión."""
         exp = self._crear_exploracion_completa()
         st.session_state.exploracion_actual = exp
+        st.session_state.exploracion_en_vista_historial = exp
         st.session_state.cuestionario_indice_actual = 1
         st.session_state.cuestionario_respuestas = {exp.actividades[0].actividad_id: Mock()}
         st.session_state.exploraciones_guardadas_ids = {exp.exploracion_id}
@@ -183,11 +184,70 @@ class TestIntegracionTareas789(unittest.TestCase):
         # Comprobar limpieza estricta
         self.assertIsNone(st.session_state.usuario)
         self.assertIsNone(st.session_state.exploracion_actual)
+        self.assertIsNone(st.session_state.exploracion_en_vista_historial)
         self.assertEqual(st.session_state.cuestionario_indice_actual, 0)
         self.assertEqual(st.session_state.cuestionario_respuestas, {})
         self.assertEqual(len(st.session_state.exploraciones_guardadas_ids), 0)
         self.assertEqual(len(st.session_state._exploraciones_demo), 0)
         self.assertEqual(len(_CACHE_AUDIO_SESION), 0)
+
+    def test_cambio_usuario_a_b_sin_fuga_de_datos_en_historial_y_ui(self) -> None:
+        """Cambio A -> B: ni el cierre de sesión ni la vista de historial exponen datos de A a B."""
+        from homelens.config import cargar_configuracion
+        from homelens.ui.historial import renderizar_pantalla_historial
+
+        usuario_a = ContextoUsuario(
+            user_id=UUID("11111111-1111-1111-1111-111111111111"),
+            sesion_id="jwt_usuario_a",
+            email="usuario.a@gmail.com",
+            nombre="Usuario A",
+            es_demo=False,
+        )
+        usuario_b = ContextoUsuario(
+            user_id=UUID("22222222-2222-2222-2222-222222222222"),
+            sesion_id="jwt_usuario_b",
+            email="usuario.b@gmail.com",
+            nombre="Usuario B",
+            es_demo=False,
+        )
+
+        exp_a = Exploracion(
+            exploracion_id=uuid4(),
+            user_id=usuario_a.user_id,
+            creada_en=datetime.now(timezone.utc),
+            estado=EstadoAnalisis.UTILIZABLE,
+            objetos=self._crear_exploracion_completa().objetos,
+            actividades=[],
+        )
+
+        # 1. Simular que A tenía una exploración recuperada abierta en vista de historial y cierra sesión
+        st.session_state.usuario = usuario_a
+        st.session_state.exploracion_actual = exp_a
+        st.session_state.exploracion_en_vista_historial = exp_a
+        st.session_state.exploraciones_guardadas_ids = {exp_a.exploracion_id}
+        cerrar_sesion_usuario()
+
+        self.assertIsNone(st.session_state.exploracion_en_vista_historial)
+        self.assertIsNone(st.session_state.exploracion_actual)
+        self.assertEqual(len(st.session_state.exploraciones_guardadas_ids), 0)
+
+        # 2. Defensa en profundidad: incluso si quedara un resto residual de A en session_state al entrar B,
+        # renderizar_pantalla_historial lo descarta y nunca llama a mostrar_exploracion.
+        st.session_state.usuario = usuario_b
+        st.session_state.exploracion_en_vista_historial = exp_a
+
+        cfg = cargar_configuracion().valor
+        mock_repo = Mock()
+        mock_repo.listar_exploraciones.return_value = Mock(ok=True, valor=[])
+
+        with (
+            patch("homelens.ui.historial.RepositorioSupabase", return_value=mock_repo),
+            patch("homelens.ui.historial.mostrar_exploracion") as mock_mostrar,
+        ):
+            renderizar_pantalla_historial(cfg)
+            mock_mostrar.assert_not_called()
+
+        self.assertIsNone(st.session_state.exploracion_en_vista_historial)
 
 
 if __name__ == "__main__":

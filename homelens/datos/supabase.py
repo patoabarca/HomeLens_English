@@ -56,12 +56,69 @@ class RepositorioSupabase(RepositorioHomeLens):
         self._cliente_inyectado = cliente_supabase
         self._almacen_demo = almacen_demo if almacen_demo is not None else {}
 
+    @staticmethod
+    def _validar_contexto_usuario(
+        usuario: Optional[ContextoUsuario], mensaje_falta: str
+    ) -> Optional[Resultado]:
+        """Valida que exista una identidad y token JWT (o sesión demo explícita)."""
+        if usuario is None or not usuario.user_id:
+            return Resultado.fallo(
+                codigo=CODIGO_SESION_REQUERIDA,
+                mensaje_usuario=mensaje_falta,
+            )
+        if not usuario.es_demo:
+            token = usuario.sesion_id.strip() if isinstance(usuario.sesion_id, str) else ""
+            if not token or token == "local_demo_session":
+                return Resultado.fallo(
+                    codigo=CODIGO_SESION_REQUERIDA,
+                    mensaje_usuario="Tu sesión autenticada no contiene credenciales válidas. Inicia sesión nuevamente con Google.",
+                )
+        return None
+
+    @staticmethod
+    def _traducir_error_bd(error: Exception, mensaje_defecto: str) -> Resultado:
+        """Traduce errores de PostgREST/PostgreSQL evitando tratar fallos de JWT/RLS como errores de red."""
+        msg_err = str(error).lower()
+        if (
+            "jwt" in msg_err
+            or "pgrst301" in msg_err
+            or "invalid token" in msg_err
+            or "401" in msg_err
+            or "unauthorized" in msg_err
+        ):
+            return Resultado.fallo(
+                codigo=CODIGO_SESION_REQUERIDA,
+                mensaje_usuario="Tu sesión expiró o no es válida. Vuelve a iniciar sesión con Google.",
+                reintentable=False,
+            )
+        if (
+            "42501" in msg_err
+            or "row-level security" in msg_err
+            or "permission denied" in msg_err
+            or "403" in msg_err
+        ):
+            return Resultado.fallo(
+                codigo=CODIGO_ACCESO_DENEGADO,
+                mensaje_usuario="Acceso denegado por las políticas de seguridad de la base de datos.",
+                reintentable=False,
+            )
+        return Resultado.fallo(
+            codigo=CODIGO_PERSISTENCIA_FALLIDA,
+            mensaje_usuario=mensaje_defecto,
+            reintentable=True,
+        )
+
     def _obtener_cliente_para_usuario(self, usuario: ContextoUsuario) -> Optional[Any]:
         """Obtiene un cliente de Supabase configurado exclusivamente para la sesión del usuario.
 
         Garantiza que el token JWT del usuario no sea compartido de forma mutable entre
         distintos usuarios, preservando el aislamiento estricto de sesiones.
         """
+        if not usuario.es_demo:
+            token_check = usuario.sesion_id.strip() if isinstance(usuario.sesion_id, str) else ""
+            if not token_check or token_check == "local_demo_session":
+                return None
+
         if self._cliente_inyectado is not None:
             # Cliente inyectado (pruebas / mocks): si tiene postgrest.auth, vincular el token
             if (
@@ -78,12 +135,16 @@ class RepositorioSupabase(RepositorioHomeLens):
         try:
             from supabase import create_client, ClientOptions
 
-            token_usuario = usuario.sesion_id if usuario.sesion_id else None
+            token_usuario = usuario.sesion_id.strip() if usuario.sesion_id else None
             headers = {}
             if token_usuario and not usuario.es_demo:
                 headers["Authorization"] = f"Bearer {token_usuario}"
 
-            opciones = ClientOptions(headers=headers) if headers else None
+            opciones = ClientOptions(
+                headers=headers,
+                auto_refresh_token=False,
+                persist_session=False,
+            )
             return create_client(self.supabase_url, self.anon_key, options=opciones)
         except Exception:
             return None
@@ -206,11 +267,11 @@ class RepositorioSupabase(RepositorioHomeLens):
 
         Previene duplicados por doble pulsación y valida la correspondencia de propiedad.
         """
-        if usuario is None or not usuario.user_id:
-            return Resultado.fallo(
-                codigo=CODIGO_SESION_REQUERIDA,
-                mensaje_usuario="Se requiere una sesión de usuario válida para guardar exploraciones.",
-            )
+        err_usuario = self._validar_contexto_usuario(
+            usuario, "Se requiere una sesión de usuario válida para guardar exploraciones."
+        )
+        if err_usuario is not None:
+            return err_usuario
 
         if exploracion is None or not exploracion.exploracion_id:
             return Resultado.fallo(
@@ -290,21 +351,20 @@ class RepositorioSupabase(RepositorioHomeLens):
                     mensaje_usuario="La exploración ya fue guardada previamente en tu historial.",
                 )
 
-            return Resultado.fallo(
-                codigo=CODIGO_PERSISTENCIA_FALLIDA,
-                mensaje_usuario="No fue posible conectar con la base de datos para guardar la exploración. Intenta nuevamente.",
-                reintentable=True,
+            return self._traducir_error_bd(
+                e,
+                "No fue posible conectar con la base de datos para guardar la exploración. Intenta nuevamente.",
             )
 
     def obtener_exploracion(
         self, usuario: ContextoUsuario, exploracion_id: UUID
     ) -> Resultado[Exploracion]:
         """Obtiene una exploración verificando que pertenezca exclusivamente al usuario solicitante."""
-        if usuario is None or not usuario.user_id:
-            return Resultado.fallo(
-                codigo=CODIGO_SESION_REQUERIDA,
-                mensaje_usuario="Se requiere una sesión válida para consultar el historial.",
-            )
+        err_usuario = self._validar_contexto_usuario(
+            usuario, "Se requiere una sesión válida para consultar el historial."
+        )
+        if err_usuario is not None:
+            return err_usuario
 
         if not exploracion_id:
             return Resultado.fallo(
@@ -357,22 +417,21 @@ class RepositorioSupabase(RepositorioHomeLens):
             exploracion = self._deserializar_fila(fila)
             return Resultado.exito(exploracion)
 
-        except Exception:
-            return Resultado.fallo(
-                codigo=CODIGO_PERSISTENCIA_FALLIDA,
-                mensaje_usuario="Error al comunicarse con la base de datos al recuperar la exploración.",
-                reintentable=True,
+        except Exception as e:
+            return self._traducir_error_bd(
+                e,
+                "Error al comunicarse con la base de datos al recuperar la exploración.",
             )
 
     def listar_exploraciones(
         self, usuario: ContextoUsuario, limite: int = 50
     ) -> Resultado[List[ResumenExploracion]]:
         """Lista los resúmenes de exploraciones guardadas por el usuario, ordenadas de más reciente a más antigua."""
-        if usuario is None or not usuario.user_id:
-            return Resultado.fallo(
-                codigo=CODIGO_SESION_REQUERIDA,
-                mensaje_usuario="Se requiere una sesión válida para consultar exploraciones.",
-            )
+        err_usuario = self._validar_contexto_usuario(
+            usuario, "Se requiere una sesión válida para consultar exploraciones."
+        )
+        if err_usuario is not None:
+            return err_usuario
 
         # Modo Demostración Local
         if usuario.es_demo:
@@ -429,22 +488,21 @@ class RepositorioSupabase(RepositorioHomeLens):
 
             return Resultado.exito(resumenes)
 
-        except Exception:
-            return Resultado.fallo(
-                codigo=CODIGO_PERSISTENCIA_FALLIDA,
-                mensaje_usuario="Error al obtener el historial de exploraciones desde la base de datos.",
-                reintentable=True,
+        except Exception as e:
+            return self._traducir_error_bd(
+                e,
+                "Error al obtener el historial de exploraciones desde la base de datos.",
             )
 
     def listar_vocabulario(
         self, usuario: ContextoUsuario
     ) -> Resultado[List[ObjetoEducativo]]:
         """Lista el vocabulario previamente explorado y guardado por el usuario."""
-        if usuario is None or not usuario.user_id:
-            return Resultado.fallo(
-                codigo=CODIGO_SESION_REQUERIDA,
-                mensaje_usuario="Se requiere una sesión válida para consultar el vocabulario.",
-            )
+        err_usuario = self._validar_contexto_usuario(
+            usuario, "Se requiere una sesión válida para consultar el vocabulario."
+        )
+        if err_usuario is not None:
+            return err_usuario
 
         # Modo Demostración Local
         if usuario.es_demo:
@@ -505,11 +563,10 @@ class RepositorioSupabase(RepositorioHomeLens):
 
             return Resultado.exito(vocabulario)
 
-        except Exception:
-            return Resultado.fallo(
-                codigo=CODIGO_PERSISTENCIA_FALLIDA,
-                mensaje_usuario="Error al consultar el vocabulario desde la base de datos.",
-                reintentable=True,
+        except Exception as e:
+            return self._traducir_error_bd(
+                e,
+                "Error al consultar el vocabulario desde la base de datos.",
             )
 
     # =====================================================================
