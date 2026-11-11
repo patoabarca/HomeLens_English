@@ -42,7 +42,7 @@ def boton(app, tipo="palabra", numero=0):
 
 
 def llamadas(app):
-    return app.session_state.filtered_state.get("sim_llamadas", 0)
+    return app.session_state.get("sim_llamadas", 0)
 
 
 def test_tarjetas_no_sintetizan_y_click_generacion_cache(sin_red):
@@ -89,7 +89,7 @@ def test_dos_navegadores_demo_no_comparten_cache_ni_cierre():
     assert llamadas(a) == llamadas(b) == 1
     a.button(key="sim_cerrar").click().run()
     assert not a.exception and a.session_state.usuario is None
-    assert "_audio_contexto" not in a.session_state.filtered_state
+    assert "_audio_contexto" not in a.session_state
     assert len(audio._CACHE_AUDIO_SESION) == 1
     boton(b).click().run()
     assert llamadas(b) == 1
@@ -128,4 +128,4 @@ def test_cierre_durante_error_revocacion_limpia_audio(monkeypatch):
     app.button(key="sim_cerrar").click().run()
     assert app.exception  # M1 existente propaga el error; M5 descarta el audio igualmente.
     assert not audio._CACHE_AUDIO_SESION
-    assert "_audio_contexto" not in app.session_state.filtered_state
+    assert "_audio_contexto" not in app.session_state
