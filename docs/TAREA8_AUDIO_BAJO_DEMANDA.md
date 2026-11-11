@@ -250,3 +250,28 @@ los datos. Estas reglas locales no se distribuyen a otros clones.
 
 Los cambios quedan preparados para un commit posterior. **No se realizó commit,
 push ni merge de ramas.** La prueba de pronunciación real continúa pendiente.
+
+## Validación real con Google Cloud TTS (11 de noviembre de 2026)
+
+En la rama `validacion/tts-real` (creada sobre `origin/main` `236ea16` tras el PR #2) se completó la habilitación y prueba controlada del servicio real de **Google Cloud Text-to-Speech**.
+
+### Configuración y controles aplicados
+
+- **Control por defecto deshabilitado:** `GOOGLE_TTS_ENABLED` permanece en `false` por defecto (y bloqueado en `APP_ENV=test/testing` y para usuarios demo). Para la prueba local controlada se activó temporalmente `GOOGLE_TTS_ENABLED=true` en `.env` (archivo excluido de Git) y luego se restableció a `false`.
+- **Parámetros de síntesis y caché:** `APP_ENV=development`, `GOOGLE_TTS_LANGUAGE_CODE=en-US`, `GOOGLE_TTS_VOICE_NAME=en-US-Standard-C`, `AUDIO_CACHE_TTL_SECONDS=3600`, texto plano (`SynthesisInput.text`), `timeout=10.0` s y `retry=None`.
+- **Autenticación segura sin claves JSON en el repositorio:** se utilizó **Application Default Credentials (ADC)** local del usuario mediante Google Cloud CLI (`gcloud auth application-default login` y `gcloud auth application-default set-quota-project`), dejando `GOOGLE_APPLICATION_CREDENTIALS` vacío y sin crear archivos de clave privada dentro del repositorio.
+- **Proyecto y resguardo de costos:** proyecto dedicado en Google Cloud con facturación activa vinculada, `texttospeech.googleapis.com` habilitada, presupuesto mensual con alertas al 50%, 90% y 100%, cuotas activas y voz Standard (`en-US-Standard-C`) dentro de la franquicia gratuita mensual.
+
+### Resultado funcional verificado
+
+Con sesión real autenticada con Google vía Supabase Auth (no Modo Demo):
+
+1. **Sin reproducción ni llamadas automáticas:** al cargar y enfocar objetos en las tarjetas educativas no se solicita audio ni se inicia reproducción (`autoplay=False`).
+2. **Pronunciación real:** al pulsar **«🔊 Escuchar palabra»** y **«🔊 Escuchar frase»**, el reproductor nativo `st.audio` reprodujo correctamente la pronunciación en inglés estadounidense (`en-US-Standard-C`).
+3. **Caché de sesión:** repetir la solicitud o cambiar el enfoque entre objetos reutilizó el audio en memoria sin nuevas llamadas al proveedor.
+4. **Convivencia y limpieza:** tarjetas educativas, guardado/historial (M7) y cuestionarios (M6) continuaron operando con normalidad, y el cierre de sesión descartó el ámbito de audio sin afectar sesiones de otros usuarios.
+
+### Compatibilidad de pruebas UI (`Streamlit 1.66.1`)
+
+- Se ajustó exclusivamente [`tests/test_ui_audio.py`](../tests/test_ui_audio.py) (commit `14c356c`) para reemplazar el acceso incompatible `app.session_state.filtered_state` por la interfaz soportada en `Streamlit 1.66.1` (`app.session_state.get(...)` y verificación de pertenencia `in ...session_state`), manteniendo intactas las aserciones y sin modificar el código de producción.
+- Toda la suite automatizada (`169` pruebas con clientes simulados, sin llamadas reales a Google Cloud TTS ni a Gemini) aprueba después de los cambios finales.
