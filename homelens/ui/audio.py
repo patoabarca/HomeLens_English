@@ -15,14 +15,41 @@ from homelens.modelos import (
     ContextoUsuario, Exploracion, ObjetoEducativo, SolicitudAudio, EstadoAnalisis,
 )
 
+OPCIONES_VELOCIDAD_FRASE: dict[str, float] = {
+    "Normal (1.0x)": 1.0,
+    "Lenta (0.8x)": 0.8,
+    "Muy lenta (0.65x)": 0.65,
+}
+VELOCIDAD_FRASE_DEFECTO: str = "Lenta (0.8x)"
+VELOCIDAD_PALABRA: float = 1.0
+CLAVE_VELOCIDAD_FRASE: str = "_audio_velocidad_frase"
+
+
+def _cb_cambio_velocidad(key_origen: str) -> None:
+    """Propaga el cambio de velocidad al estado global y a los widgets de la sesión."""
+    opcion = st.session_state.get(key_origen)
+    if opcion in OPCIONES_VELOCIDAD_FRASE:
+        st.session_state[CLAVE_VELOCIDAD_FRASE] = opcion
+        for k in list(st.session_state.keys()):
+            if k.startswith("audio_") and k.endswith("_velocidad"):
+                st.session_state[k] = opcion
+
 
 def limpiar_audio_sesion_ui() -> None:
     """Libera el ámbito privado y toda selección de reproductor de este navegador."""
     contexto = st.session_state.pop("_audio_contexto", None)
     if contexto is not None:
         limpiar_cache_audio(contexto.sesion_id)
-    for clave in ("_audio_identidad", "_audio_exploracion", "_audio_selecciones"):
+    for clave in (
+        "_audio_identidad",
+        "_audio_exploracion",
+        "_audio_selecciones",
+        CLAVE_VELOCIDAD_FRASE,
+    ):
         st.session_state.pop(clave, None)
+    for clave in list(st.session_state.keys()):
+        if clave.startswith("audio_") and clave.endswith("_velocidad"):
+            st.session_state.pop(clave, None)
 
 
 def _contexto_audio(usuario: ContextoUsuario) -> ContextoUsuario:
@@ -60,29 +87,63 @@ def mostrar_controles_audio(exploracion: Exploracion, objeto: ObjetoEducativo) -
         st.session_state["_audio_selecciones"] = {}
     selecciones = st.session_state["_audio_selecciones"]
 
-    palabra, frase = st.columns(2)
     prefijo = f"audio_{exploracion.exploracion_id}_{objeto.objeto_id}"
+
+    # Sincronización de velocidad de frase en la sesión y entre tarjetas
+    vel_actual = st.session_state.get(CLAVE_VELOCIDAD_FRASE, VELOCIDAD_FRASE_DEFECTO)
+    key_vel = f"{prefijo}_velocidad"
+    if st.session_state.get(key_vel) != vel_actual:
+        st.session_state[key_vel] = vel_actual
+
+    palabra, frase = st.columns(2)
     with palabra:
         pedir_palabra = st.button(
             "🔊 Escuchar palabra", key=f"{prefijo}_palabra",
-            help="Prepara la pronunciación del nombre en inglés.",
+            help="Prepara la pronunciación del nombre en inglés a velocidad normal (1.0x).",
+            use_container_width=True,
         )
     with frase:
         pedir_frase = st.button(
             "🔊 Escuchar frase", key=f"{prefijo}_frase",
-            help="Prepara la pronunciación de la frase en inglés.",
+            help="Prepara la pronunciación de la frase en inglés a la velocidad seleccionada.",
+            use_container_width=True,
+        )
+
+    # Selector de velocidad compacto para frases pedagógicas
+    opciones_vel = list(OPCIONES_VELOCIDAD_FRASE.keys())
+    if hasattr(st, "segmented_control"):
+        st.segmented_control(
+            "⚡ Velocidad de frase:",
+            options=opciones_vel,
+            key=key_vel,
+            on_change=_cb_cambio_velocidad,
+            args=(key_vel,),
+            help="Ajusta la velocidad para escuchar la frase en inglés (Normal, Lenta o Muy lenta).",
+        )
+    else:
+        st.radio(
+            "⚡ Velocidad de frase:",
+            options=opciones_vel,
+            key=key_vel,
+            horizontal=True,
+            on_change=_cb_cambio_velocidad,
+            args=(key_vel,),
+            help="Ajusta la velocidad para escuchar la frase en inglés (Normal, Lenta o Muy lenta).",
         )
 
     if pedir_palabra or pedir_frase:
         # El texto sale del objeto validado, nunca de un campo libre del navegador.
         texto = objeto.nombre_en if pedir_palabra else objeto.frase_en
+        vel_opcion = st.session_state.get(CLAVE_VELOCIDAD_FRASE, VELOCIDAD_FRASE_DEFECTO)
+        velocidad = VELOCIDAD_PALABRA if pedir_palabra else OPCIONES_VELOCIDAD_FRASE.get(vel_opcion, 0.8)
+
         config = cargar_configuracion()
         if not config.ok or config.valor is None:
             st.warning("La pronunciación no está disponible por el momento.")
             return
         solicitud = SolicitudAudio(
             texto=texto, idioma=config.valor.google_tts_language_code,
-            voz=config.valor.google_tts_voice_name, velocidad=1.0,
+            voz=config.valor.google_tts_voice_name, velocidad=velocidad,
         )
         with st.spinner("Preparando pronunciación…"):
             resultado = obtener_audio(contexto, solicitud, uuid4())
@@ -99,7 +160,8 @@ def mostrar_controles_audio(exploracion: Exploracion, objeto: ObjetoEducativo) -
         selecciones.pop(objeto.objeto_id, None)
         st.caption("El audio temporal ya no está disponible. Pulsa Escuchar para prepararlo otra vez.")
         return
-    st.caption("Audio listo. Pulsa ▶ para escuchar; puedes repetirlo desde el reproductor.")
+    etiqueta_tipo = f"frase ({solicitud.velocidad}x)" if solicitud.texto == objeto.frase_en else "palabra (1.0x)"
+    st.caption(f"Audio listo · {etiqueta_tipo}. Pulsa ▶ para escuchar; puedes repetirlo desde el reproductor.")
     # alt es reciente: mantener compatibilidad con el mínimo de Streamlit del repo.
     accesibilidad = {"alt": "Pronunciación del contenido educativo en inglés"} if (
         "alt" in inspect.signature(st.audio).parameters
