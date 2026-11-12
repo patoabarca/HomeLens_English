@@ -1,0 +1,4 @@
+image_id,ruta_relativa,ambiente,anotaciones,sha256,criterio
+cvat_evaluacion_sintetica_lucas_v1_1,images/Baño_01.png,Baño,13,464ea94418724c7ee84fb3438efb1a85834970386e6c99e7557aa80253317e56,primera imagen por orden del manifiesto
+cvat_evaluacion_sintetica_lucas_v1_6,images/Cocina_01.png,Cocina,22,4aa6ba76b3c6231c444cb51d3da340e20897a50e9b6b17d6f11456f129a8cd0d,primera imagen por orden del manifiesto
+cvat_evaluacion_sintetica_lucas_v1_26,images/Living_01.png,Living,21,8da0b2ab8b828a2095449b119ff10c8fb2f6b37d6bbfa1f303d046e794015e49,primera imagen por orden del manifiesto

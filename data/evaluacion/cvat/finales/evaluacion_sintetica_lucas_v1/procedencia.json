@@ -19,8 +19,15 @@
     "usos_externos_o_redistribucion_publica": "No declarados ni inferidos"
   },
   "revision_humana": {
-    "estado": "pendiente",
-    "decisiones_registradas": 0,
-    "calidad_visual_aprobada": false
+    "archivo_decisiones": "seleccion_revision_30_importacion.csv",
+    "cantidad_decisiones": 30,
+    "cantidad_aceptadas": 30,
+    "estado": "completada",
+    "archivo_decisiones_original": "seleccion_revision_30.csv",
+    "sha256_original": "f9dbd7be42f36a6a2c1c90e129d20cdcc6556f86b4c0d74f81c7642a1631dc2b",
+    "sha256_importacion": "ad3947422a20a67475aa3aa6e5036e7650b1cd65d577230d207ab5cb093e5538",
+    "fecha_importacion": "2026-11-12T15:08:24-03:00",
+    "criterio_ambiente": "Para filas con ambiente=pendiente, se recuperó ambiente desde manifiesto_imagenes.csv mediante coincidencia exacta del nombre de archivo; los valores de iluminación y dificultad quedaron vacíos porque no fueron declarados.",
+    "calidad_visual_aprobada": true
   }
 }

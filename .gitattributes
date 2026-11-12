@@ -1,0 +1,4 @@
+/data/evaluacion/cvat/finales/evaluacion_sintetica_lucas_v1/seleccion.csv text eol=crlf
+/data/evaluacion/cvat/finales/evaluacion_sintetica_lucas_v1/seleccion_revision_30.csv -text
+/data/evaluacion/cvat/finales/evaluacion_sintetica_lucas_v1/seleccion_revision_30_importacion.csv -text
+/data/evaluacion/cvat/finales/evaluacion_sintetica_lucas_v1/seleccion_prueba_3.csv text eol=crlf
