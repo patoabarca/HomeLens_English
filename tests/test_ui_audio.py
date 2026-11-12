@@ -129,3 +129,79 @@ def test_cierre_durante_error_revocacion_limpia_audio(monkeypatch):
     assert app.exception  # M1 existente propaga el error; M5 descarta el audio igualmente.
     assert not audio._CACHE_AUDIO_SESION
     assert "_audio_contexto" not in app.session_state
+
+
+def selector_velocidad(app, numero=0):
+    return [r for r in app.radio if r.key and r.key.endswith("_velocidad")][numero]
+
+
+def test_velocidad_predeterminada_es_lenta_y_palabra_es_normal(sin_red):
+    app = iniciar()
+    # 1. Escuchar palabra utiliza velocidad normal 1.0
+    boton(app, "palabra").click().run()
+    assert not app.exception
+    assert app.session_state.sim_ultimo_texto == "Chair"
+    assert app.session_state.sim_ultima_velocidad == 1.0
+    assert len(app.get("audio")) == 1
+
+    # 2. Escuchar frase utiliza velocidad lenta 0.8 por defecto
+    boton(app, "frase").click().run()
+    assert not app.exception
+    assert app.session_state.sim_ultimo_texto == "This is a comfortable chair."
+    assert app.session_state.sim_ultima_velocidad == 0.8
+    assert len(app.get("audio")) == 1
+
+
+def test_tres_velocidades_frase_y_reutilizacion_cache(sin_red):
+    app = iniciar()
+
+    # Opción 1: Lenta (0.8x) predeterminada
+    boton(app, "frase").click().run()
+    assert not app.exception and llamadas(app) == 1
+    assert app.session_state.sim_ultima_velocidad == 0.8
+
+    # Opción 2: Cambiar a Normal (1.0x)
+    selector_velocidad(app).set_value("Normal (1.0x)").run()
+    boton(app, "frase").click().run()
+    assert not app.exception and llamadas(app) == 2
+    assert app.session_state.sim_ultima_velocidad == 1.0
+
+    # Opción 3: Cambiar a Muy lenta (0.65x)
+    selector_velocidad(app).set_value("Muy lenta (0.65x)").run()
+    boton(app, "frase").click().run()
+    assert not app.exception and llamadas(app) == 3
+    assert app.session_state.sim_ultima_velocidad == 0.65
+
+    # Volver a Normal (1.0x) recupera desde la caché existente sin sintetizar otra vez
+    selector_velocidad(app).set_value("Normal (1.0x)").run()
+    boton(app, "frase").click().run()
+    assert not app.exception and llamadas(app) == 3
+    assert len(app.get("audio")) == 1
+
+
+def test_seleccion_velocidad_se_mantiene_entre_tarjetas(sin_red):
+    app = iniciar()
+    assert selector_velocidad(app, 0).value == "Lenta (0.8x)"
+    assert selector_velocidad(app, 1).value == "Lenta (0.8x)"
+
+    # Cambiar velocidad en tarjeta 1
+    selector_velocidad(app, 0).set_value("Muy lenta (0.65x)").run()
+    # Tarjeta 2 debe reflejar la misma selección sincronizada
+    assert selector_velocidad(app, 1).value == "Muy lenta (0.65x)"
+
+    # Al pedir frase en tarjeta 2, se sintetiza a 0.65x
+    boton(app, "frase", numero=1).click().run()
+    assert not app.exception
+    assert app.session_state.sim_ultimo_texto == "The table is next to the chair."
+    assert app.session_state.sim_ultima_velocidad == 0.65
+
+
+def test_etiquetas_idioma_reemplazan_emojis_de_bandera():
+    app = iniciar()
+    markdown_total = " ".join(m.value for m in app.markdown)
+    # Ningún emoji de bandera debe figurar en las tarjetas educativas
+    assert "🇬🇧" not in markdown_total
+    assert "🇪🇸" not in markdown_total
+    # Etiquetas textuales estilizadas deben estar presentes
+    assert "EN · US" in markdown_total
+    assert "ES" in markdown_total

@@ -29,6 +29,8 @@ class ClienteSimulado:
     def synthesize_speech(self, **kwargs):
         st.session_state["sim_llamadas"] = st.session_state.get("sim_llamadas", 0) + 1
         st.session_state["sim_ultimo_texto"] = kwargs["input"].text
+        if "audio_config" in kwargs and hasattr(kwargs["audio_config"], "speaking_rate"):
+            st.session_state["sim_ultima_velocidad"] = kwargs["audio_config"].speaking_rate
         modo = st.session_state.get("sim_modo", "Normal")
         if modo == "Error":
             raise RuntimeError("Error simulado: datos privados que no deben mostrarse")

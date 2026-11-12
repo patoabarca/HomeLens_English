@@ -276,8 +276,13 @@ def mostrar_exploracion(
                     f"<div style='border-left: 5px solid {borde_hex}; padding-left: 10px; margin-bottom: 6px;'>"
                     f"{badge_enfocado}"
                     f"<span style='font-size: 0.85em; color: gray;'>OBJETO #{numero}</span><br>"
-                    f"<span style='font-size: 1.35em; font-weight: bold;'>🇬🇧 {nombre_en_esc}</span> "
-                    f"<span style='font-size: 1.1em; color: #4B5563;'>/ 🇪🇸 {nombre_es_esc}</span>"
+                    f"<span style='font-size: 1.35em; font-weight: bold;'>"
+                    f"<span style='background-color: #1D4ED8; color: #FFFFFF; font-size: 0.62em; font-weight: 700; padding: 2px 7px; border-radius: 4px; letter-spacing: 0.05em; vertical-align: 2px; margin-right: 6px; display: inline-block;' title='Inglés estadounidense'>EN · US</span>"
+                    f"{nombre_en_esc}</span> "
+                    f"<span style='font-size: 1.1em; color: #4B5563;'>"
+                    f"<span style='margin: 0 4px; color: #9CA3AF;'>/</span>"
+                    f"<span style='background-color: #475569; color: #FFFFFF; font-size: 0.65em; font-weight: 700; padding: 2px 7px; border-radius: 4px; letter-spacing: 0.05em; vertical-align: 2px; margin-right: 6px; display: inline-block;' title='Español'>ES</span>"
+                    f"{nombre_es_esc}</span>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
