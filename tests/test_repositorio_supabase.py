@@ -582,6 +582,20 @@ class TestHistorialUIFuncional(unittest.TestCase):
         self.assertTrue(res_post_cierre.ok)
         self.assertEqual(len(res_post_cierre.valor), 0)
 
+    def test_formatear_fecha_local_argentina(self):
+        """Convierte fechas UTC (con o sin tzinfo) a hora local America/Argentina/Buenos_Aires (ART)."""
+        from homelens.ui.historial import formatear_fecha_local
+
+        dt_utc = datetime(2026, 11, 11, 22, 37, tzinfo=timezone.utc)
+        self.assertEqual(formatear_fecha_local(dt_utc), "11/11/2026 — 19:37 ART")
+
+        dt_naive = datetime(2026, 11, 11, 22, 37)
+        self.assertEqual(formatear_fecha_local(dt_naive), "11/11/2026 — 19:37 ART")
+
+        # Cruce de medianoche: 01:15 UTC del día 12 corresponde a 22:15 ART del día 11
+        dt_medianoche = datetime(2026, 11, 12, 1, 15, tzinfo=timezone.utc)
+        self.assertEqual(formatear_fecha_local(dt_medianoche), "11/11/2026 — 22:15 ART")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,11 +6,25 @@ y gestionar el aislamiento de sesiones reales y modo demostración.
 """
 
 from __future__ import annotations
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import streamlit as st
 
 from homelens.config import Configuracion
 from homelens.datos.supabase import RepositorioSupabase
 from homelens.ui.exploracion import mostrar_exploracion
+
+try:
+    _TZ_ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")
+except ZoneInfoNotFoundError:
+    _TZ_ARGENTINA = timezone(timedelta(hours=-3), name="ART")
+
+
+def formatear_fecha_local(creada_en: datetime) -> str:
+    """Convierte una fecha/hora (asumiendo UTC si es naive) a hora local de Argentina (ART)."""
+    fecha_utc = creada_en if creada_en.tzinfo is not None else creada_en.replace(tzinfo=timezone.utc)
+    fecha_local = fecha_utc.astimezone(_TZ_ARGENTINA)
+    return fecha_local.strftime("%d/%m/%Y — %H:%M ART")
 
 
 def renderizar_pantalla_historial(config: Configuracion) -> None:
@@ -74,7 +88,7 @@ def renderizar_pantalla_historial(config: Configuracion) -> None:
 
     # Listado de exploraciones en tarjetas ordenadas cronológicamente
     for exp in exploraciones:
-        fecha_str = exp.creada_en.strftime("%d/%m/%Y — %H:%M UTC")
+        fecha_str = formatear_fecha_local(exp.creada_en)
         vocabulario_str = ", ".join(exp.titulos_objetos) if exp.titulos_objetos else "Sin objetos detectados"
 
         with st.container(border=True):
@@ -119,7 +133,7 @@ def renderizar_pantalla_historial(config: Configuracion) -> None:
         col_det_titulo, col_det_cerrar = st.columns([3, 1])
         with col_det_titulo:
             st.subheader("🔍 Contenido de la Exploración Recuperada")
-            st.caption(f"ID: `{exp_detalle.exploracion_id}` — Creada el {exp_detalle.creada_en.strftime('%d/%m/%Y %H:%M UTC')}")
+            st.caption(f"ID: `{exp_detalle.exploracion_id}` — Creada el {formatear_fecha_local(exp_detalle.creada_en)}")
         with col_det_cerrar:
             if st.button("❌ Cerrar detalle", use_container_width=True):
                 st.session_state.exploracion_en_vista_historial = None
