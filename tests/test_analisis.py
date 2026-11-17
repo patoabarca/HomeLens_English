@@ -886,6 +886,29 @@ class TestAnalisisGemini(unittest.TestCase):
         self.assertFalse(resultado.error.reintentable)
         self.assertEqual(mock_client.models.generate_content.call_count, 1)
 
+    def test_adaptador_error_facturacion_402(self) -> None:
+        """Verifica que el error 402 mapea a CODIGO_ACCESO_DENEGADO con mensaje de facturación y no se reintenta."""
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = errors.APIError(
+            code=402,
+            response_json={"error": {"message": "Payment Required", "status": "PAYMENT_REQUIRED"}},
+        )
+
+        adaptador = AdaptadorGemini(api_key="key-test", cliente=mock_client, max_reintentos=2)
+        resultado = adaptador.analizar_imagen_exploracion(
+            imagen_bytes=self.imagen_prueba.contenido,
+            mime_type=self.imagen_prueba.mime_type,
+            instrucciones="instrucciones",
+            operacion_id=self.operacion_id,
+        )
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_ACCESO_DENEGADO)
+        self.assertFalse(resultado.error.reintentable)
+        self.assertIn("créditos", resultado.error.mensaje_usuario)
+        self.assertIn("402", resultado.error.mensaje_usuario)
+        self.assertEqual(mock_client.models.generate_content.call_count, 1)
+
     def test_adaptador_error_transitorio_503_reintenta(self) -> None:
         """Verifica que un error 503 del servidor es reintentable."""
         mock_client = MagicMock()

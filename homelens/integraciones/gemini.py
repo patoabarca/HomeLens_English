@@ -237,8 +237,8 @@ class AdaptadorGemini:
                 # Clasificar si el error es permanente (NO reintentar)
                 es_permanente = False
                 if errors and isinstance(exc, errors.APIError):
-                    # 4xx son errores de cliente/cuota/auth permanentes para este intento
-                    if exc.code in (400, 401, 403, 404, 429):
+                    # 4xx son errores de cliente/cuota/auth/facturación permanentes para este intento
+                    if exc.code in (400, 401, 402, 403, 404, 429):
                         es_permanente = True
 
                 if es_permanente:
@@ -282,6 +282,13 @@ class AdaptadorGemini:
                 return Resultado.fallo(
                     codigo=CODIGO_LIMITE_ALCANZADO,
                     mensaje_usuario="Se ha alcanzado la cuota o límite de peticiones a Gemini. Intente más tarde.",
+                    reintentable=False,
+                    operacion_id=operacion_id,
+                )
+            if codigo_http == 402:
+                return Resultado.fallo(
+                    codigo=CODIGO_ACCESO_DENEGADO,
+                    mensaje_usuario="La cuenta de Gemini ha agotado sus créditos o requiere recarga de facturación (Error 402).",
                     reintentable=False,
                     operacion_id=operacion_id,
                 )
