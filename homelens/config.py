@@ -6,11 +6,14 @@ sin exponer secretos ni credenciales en registros ni mensajes de error.
 
 from __future__ import annotations
 import os
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, Dict
+from uuid import UUID
 from dotenv import load_dotenv
 
 from homelens.errores import Resultado, CODIGO_CONFIGURACION_INVALIDA
+
+
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,7 @@ class Configuracion:
     auth_redirect_url: str = "http://localhost:8501"
     auth_requerida: bool = True
     permitir_demo_local: bool = False
+    creadores_autorizados: dict[UUID, str] = field(default_factory=dict)
 
     @property
     def tiene_gemini(self) -> bool:
@@ -56,7 +60,7 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
     try:
         # Cargar variables de entorno si existe el archivo
         if ruta_env and os.path.exists(ruta_env):
-            load_dotenv(dotenv_path=ruta_env, override=False)
+            load_dotenv(dotenv_path=ruta_env, override=True)
         else:
             load_dotenv(override=False)
 
@@ -111,6 +115,27 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
             and os.getenv("ALLOW_DEMO_LOGIN", "false").strip().lower() in ("true", "1", "yes")
         )
 
+        def _parsear_uuid(valor: Optional[str]) -> Optional[UUID]:
+            if not valor or not str(valor).strip():
+                return None
+            try:
+                return UUID(str(valor).strip())
+            except (ValueError, AttributeError):
+                return None
+
+        creadores_autorizados: dict[UUID, str] = {}
+        uid_patricia = _parsear_uuid(os.getenv("CREADOR_ID_PATRICIA"))
+        if uid_patricia:
+            creadores_autorizados[uid_patricia] = "Patricia"
+
+        uid_lucas = _parsear_uuid(os.getenv("CREADOR_ID_LUCAS"))
+        if uid_lucas:
+            creadores_autorizados[uid_lucas] = "Lucas"
+
+        uid_victoria = _parsear_uuid(os.getenv("CREADOR_ID_VICTORIA"))
+        if uid_victoria:
+            creadores_autorizados[uid_victoria] = "Victoria"
+
         config = Configuracion(
             app_env=app_env,
             debug=debug,
@@ -131,6 +156,7 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
             auth_redirect_url=auth_redirect_url,
             auth_requerida=auth_requerida,
             permitir_demo_local=permitir_demo_local,
+            creadores_autorizados=creadores_autorizados,
         )
 
         return Resultado.exito(config)
@@ -141,3 +167,44 @@ def cargar_configuracion(ruta_env: Optional[str] = None) -> Resultado[Configurac
             mensaje_usuario="No se pudo cargar la configuración de la aplicación.",
             reintentable=False,
         )
+
+
+def es_creador_autorizado(usuario: Any, config: Optional[Configuracion] = None) -> bool:
+    """Comprueba de forma segura y en el servidor si un usuario es uno de los creadores autorizados.
+
+    Reglas estrictas de seguridad:
+    1. El usuario debe existir y no ser None.
+    2. El modo demo (es_demo=True) queda ESTRICTAMENTE EXCLUIDO.
+    3. El user_id debe pertenecer al diccionario de creadores autorizados configurados por variables de entorno.
+    4. Si no se especificó config, se intenta cargar; si no hay creadores configurados, deniega por defecto (False).
+    5. No existen identificadores predeterminados ni codificados en el repositorio.
+    """
+    if usuario is None or getattr(usuario, "es_demo", False):
+        return False
+    user_id = getattr(usuario, "user_id", None)
+    if not isinstance(user_id, UUID):
+        return False
+
+    if config is None:
+        res = cargar_configuracion()
+        if not res.ok or not res.valor:
+            return False
+        config = res.valor
+
+    if not config.creadores_autorizados:
+        return False
+
+    return user_id in config.creadores_autorizados
+
+
+def obtener_nombre_creador(user_id: UUID, config: Optional[Configuracion] = None) -> str:
+    """Devuelve la etiqueta de presentación para un user_id de creador."""
+    if config is None:
+        res = cargar_configuracion()
+        if res.ok and res.valor:
+            config = res.valor
+
+    if config is not None and config.creadores_autorizados:
+        return config.creadores_autorizados.get(user_id, "Otro Integrante")
+
+    return "Otro Integrante"

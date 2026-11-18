@@ -16,6 +16,8 @@ from homelens.modelos import (
     DesafioFindIt,
     IntentoPractica,
     Confirmacion,
+    RegistroConsumoIA,
+    FiltroConsumoIA,
 )
 
 
@@ -76,4 +78,20 @@ class RepositorioHomeLens(ABC):
         self, usuario: ContextoUsuario, desde: Optional[datetime] = None
     ) -> Resultado[List[IntentoPractica]]:
         """Lista los intentos realizados por el usuario."""
+        pass
+
+    @abstractmethod
+    def registrar_consumo_gemini(
+        self, usuario: ContextoUsuario, registro: RegistroConsumoIA
+    ) -> Resultado[UUID]:
+        """Registra de forma idempotente una operación de consumo de Gemini."""
+        pass
+
+    @abstractmethod
+    def consultar_consumo_gemini(
+        self,
+        usuario: ContextoUsuario,
+        filtro: Optional[FiltroConsumoIA] = None,
+    ) -> Resultado[List[RegistroConsumoIA]]:
+        """Consulta registros de consumo de Gemini si el usuario es un creador autorizado."""
         pass

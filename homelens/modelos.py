@@ -7,6 +7,7 @@ de Streamlit, bases de datos externas ni clientes específicos de IA.
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from decimal import Decimal
 from enum import Enum
 from typing import Optional
 from uuid import UUID, uuid4
@@ -315,6 +316,10 @@ class EventoTecnico:
     numero_reintentos: int
     uso_reportado: Optional[dict] = None
     costo_estimado: Optional[float] = None
+    user_id: Optional[UUID] = None
+    modelo: Optional[str] = None
+    codigo_error: Optional[int] = None
+    costo_estimado_decimal: Optional[Decimal] = None
 
 
 @dataclass(frozen=True)
@@ -323,3 +328,53 @@ class Confirmacion:
     operacion_id: UUID
     mensaje: str
     ejecutada_en: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# =====================================================================
+# 7. Panel de Consumo de IA (Métricas Centralizadas)
+# =====================================================================
+
+@dataclass(frozen=True)
+class RegistroConsumoIA:
+    """Registro persistente de consumo de una operación con Gemini."""
+    id: UUID
+    operacion_id: UUID
+    user_id: UUID
+    fecha: datetime
+    modelo: str
+    estado: str
+    duracion_ms: int
+    numero_llamadas: int
+    numero_reintentos: int
+    codigo_error: Optional[int] = None
+    prompt_tokens: Optional[int] = None
+    candidates_tokens: Optional[int] = None
+    thoughts_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    cached_tokens: Optional[int] = None
+    tarifa_version: Optional[str] = None
+    costo_estimado: Optional[Decimal] = None
+    integrante_etiqueta: Optional[str] = None
+    metadatos: Optional[dict] = None
+
+
+@dataclass(frozen=True)
+class ResumenConsumoIA:
+    """Agregado y KPIs principales para el panel de control de consumo."""
+    total_fotografias: int
+    total_solicitudes: int
+    total_reintentos: int
+    total_solicitudes_fallidas: int
+    total_tokens: int
+    costo_acumulado: Decimal
+    costo_promedio_por_foto: Optional[Decimal]
+
+
+@dataclass(frozen=True)
+class FiltroConsumoIA:
+    """Filtros aplicables al consultar el histórico de consumo."""
+    user_id: Optional[UUID] = None
+    fecha_desde: Optional[datetime] = None
+    fecha_hasta: Optional[datetime] = None
+    modelo: Optional[str] = None
+    estado: Optional[str] = None

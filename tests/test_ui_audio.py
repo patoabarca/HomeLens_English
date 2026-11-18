@@ -42,7 +42,10 @@ def boton(app, tipo="palabra", numero=0):
 
 
 def llamadas(app):
-    return app.session_state.get("sim_llamadas", 0)
+    try:
+        return app.session_state["sim_llamadas"]
+    except KeyError:
+        return 0
 
 
 def test_tarjetas_no_sintetizan_y_click_generacion_cache(sin_red):
