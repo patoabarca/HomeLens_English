@@ -30,7 +30,7 @@ from homelens.errores import (
     CODIGO_ACCESO_DENEGADO,
 )
 from homelens.esquemas_ia import RespuestaExploracionIA
-from homelens.modelos import EventoTecnico
+from homelens.modelos import EventoTecnico, ContextoUsuario
 from homelens.telemetria import registrar_evento
 
 
@@ -40,16 +40,20 @@ class AdaptadorGemini:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        modelo: str = "gemini-2.5-flash",
+        modelo: str = "gemini-3.6-flash",
         timeout_segundos: float = 60.0,
         max_reintentos: int = 1,
         cliente: Optional[Any] = None,
+        repositorio: Optional[Any] = None,
+        usuario: Optional[ContextoUsuario] = None,
     ) -> None:
         self.api_key = api_key.strip() if api_key and api_key.strip() else None
         self.modelo = modelo
         self.timeout_segundos = max(1.0, float(timeout_segundos))
         self.max_reintentos = max(0, min(max_reintentos, 3))
         self._cliente_inyectado = cliente
+        self.repositorio = repositorio
+        self.usuario = usuario
 
     @property
     def esta_configurado(self) -> bool:
@@ -77,6 +81,8 @@ class AdaptadorGemini:
         mime_type: str,
         instrucciones: str,
         operacion_id: Optional[UUID] = None,
+        usuario: Optional[ContextoUsuario] = None,
+        repositorio: Optional[Any] = None,
     ) -> Resultado[RespuestaExploracionIA]:
         """Envía una imagen a Gemini con instrucciones y esquema estructurado.
 
@@ -85,11 +91,15 @@ class AdaptadorGemini:
             mime_type: Tipo MIME ('image/jpeg' o 'image/png').
             instrucciones: Prompt educativo versionado.
             operacion_id: Identificador único de trazabilidad.
+            usuario: Contexto de identidad del usuario activo.
+            repositorio: Repositorio para persistir métricas de consumo.
 
         Returns:
             Resultado[RespuestaExploracionIA]: Respuesta estructurada o error controlado.
         """
         op_id = operacion_id or uuid4()
+        usr = usuario or self.usuario
+        repo = repositorio or self.repositorio
 
         if not self.esta_configurado:
             return Resultado.fallo(
@@ -152,14 +162,16 @@ class AdaptadorGemini:
 
                 duracion_ms = int((time.perf_counter() - inicio) * 1000)
 
-                # Extraer metadatos de consumo si están disponibles
+                # Extraer metadatos oficiales de consumo (usage_metadata)
                 uso_reportado = None
                 if hasattr(respuesta, "usage_metadata") and respuesta.usage_metadata:
                     try:
                         uso_reportado = {
                             "prompt_token_count": getattr(respuesta.usage_metadata, "prompt_token_count", None),
                             "candidates_token_count": getattr(respuesta.usage_metadata, "candidates_token_count", None),
+                            "thoughts_token_count": getattr(respuesta.usage_metadata, "thoughts_token_count", None),
                             "total_token_count": getattr(respuesta.usage_metadata, "total_token_count", None),
+                            "cached_content_token_count": getattr(respuesta.usage_metadata, "cached_content_token_count", None),
                         }
                     except Exception:
                         uso_reportado = None
@@ -167,7 +179,6 @@ class AdaptadorGemini:
                 # Validar contenido de respuesta antes de registrar éxito
                 texto_respuesta = getattr(respuesta, "text", None)
                 if not texto_respuesta or not str(texto_respuesta).strip():
-                    # Comprobar si hubo bloqueo o rechazo
                     bloqueo_mensaje = "La respuesta de Gemini fue bloqueada o vino vacía."
                     if hasattr(respuesta, "prompt_feedback") and getattr(respuesta.prompt_feedback, "block_reason", None):
                         bloqueo_mensaje = f"Contenido bloqueado por filtros de seguridad: {respuesta.prompt_feedback.block_reason}"
@@ -182,7 +193,11 @@ class AdaptadorGemini:
                             numero_llamadas=intentos,
                             numero_reintentos=reintentos_realizados,
                             uso_reportado=uso_reportado,
-                        )
+                            user_id=usr.user_id if usr else None,
+                            modelo=self.modelo,
+                        ),
+                        repositorio=repo,
+                        usuario=usr,
                     )
 
                     return Resultado.fallo(
@@ -206,7 +221,11 @@ class AdaptadorGemini:
                             numero_llamadas=intentos,
                             numero_reintentos=reintentos_realizados,
                             uso_reportado=uso_reportado,
-                        )
+                            user_id=usr.user_id if usr else None,
+                            modelo=self.modelo,
+                        ),
+                        repositorio=repo,
+                        usuario=usr,
                     )
                     return Resultado.fallo(
                         codigo=CODIGO_RESPUESTA_INVALIDA,
@@ -215,7 +234,7 @@ class AdaptadorGemini:
                         operacion_id=op_id,
                     )
 
-                # Registrar telemetría exitosa
+                # Registrar telemetría exitosa con persistencia centralizada
                 registrar_evento(
                     EventoTecnico(
                         operacion_id=op_id,
@@ -226,7 +245,11 @@ class AdaptadorGemini:
                         numero_llamadas=intentos,
                         numero_reintentos=reintentos_realizados,
                         uso_reportado=uso_reportado,
-                    )
+                        user_id=usr.user_id if usr else None,
+                        modelo=self.modelo,
+                    ),
+                    repositorio=repo,
+                    usuario=usr,
                 )
 
                 return Resultado.exito(respuesta_ia)
@@ -237,21 +260,26 @@ class AdaptadorGemini:
                 # Clasificar si el error es permanente (NO reintentar)
                 es_permanente = False
                 if errors and isinstance(exc, errors.APIError):
-                    # 4xx son errores de cliente/cuota/auth/facturación permanentes para este intento
                     if exc.code in (400, 401, 402, 403, 404, 429):
                         es_permanente = True
 
                 if es_permanente:
                     break
 
-                # Si es reintentable y quedan intentos, esperar brevemente
                 if intentos <= self.max_reintentos:
                     reintentos_realizados += 1
                     time.sleep(0.5 * intentos)
 
         duracion_ms = int((time.perf_counter() - inicio) * 1000)
 
-        # Registrar telemetría de fallo
+        # Extraer código HTTP numérico de error si está disponible
+        codigo_http_fallo = getattr(ultimo_error, "code", None)
+        if not isinstance(codigo_http_fallo, int):
+            resp_diag = getattr(ultimo_error, "response", None)
+            if resp_diag and hasattr(resp_diag, "status_code") and isinstance(resp_diag.status_code, int):
+                codigo_http_fallo = resp_diag.status_code
+
+        # Registrar telemetría de fallo con persistencia centralizada
         registrar_evento(
             EventoTecnico(
                 operacion_id=op_id,
@@ -261,7 +289,12 @@ class AdaptadorGemini:
                 estado="ERROR",
                 numero_llamadas=intentos,
                 numero_reintentos=reintentos_realizados,
-            )
+                codigo_error=codigo_http_fallo if isinstance(codigo_http_fallo, int) else None,
+                user_id=usr.user_id if usr else None,
+                modelo=self.modelo,
+            ),
+            repositorio=repo,
+            usuario=usr,
         )
 
         return self._mapear_excepcion(ultimo_error, op_id)

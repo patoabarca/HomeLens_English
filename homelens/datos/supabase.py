@@ -7,9 +7,11 @@ y soporte para sesiones en modo demostración.
 
 from __future__ import annotations
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import List, Optional, Any, Dict
 from uuid import UUID
 
+from homelens.config import es_creador_autorizado, obtener_nombre_creador
 from homelens.errores import (
     Resultado,
     CODIGO_CONFIGURACION_INVALIDA,
@@ -29,6 +31,8 @@ from homelens.modelos import (
     DesafioFindIt,
     IntentoPractica,
     Confirmacion,
+    RegistroConsumoIA,
+    FiltroConsumoIA,
 )
 from homelens.datos.repositorio import RepositorioHomeLens
 
@@ -604,4 +608,154 @@ class RepositorioSupabase(RepositorioHomeLens):
             codigo=CODIGO_PERSISTENCIA_FALLIDA,
             mensaje_usuario="El listado de intentos de práctica corresponde a la Tarea 10.",
         )
+
+    # =====================================================================
+    # Panel de Consumo de IA (Gemini) — Métricas y Costos Centralizados
+    # =====================================================================
+
+    def registrar_consumo_gemini(
+        self, usuario: ContextoUsuario, registro: RegistroConsumoIA
+    ) -> Resultado[UUID]:
+        """Registra de forma idempotente una operación de consumo de Gemini."""
+        val = self._validar_contexto_usuario(usuario, "Se requiere una sesión activa para registrar consumo.")
+        if val is not None:
+            return val
+
+        # Modo demo: no genera registros de costos reales en Supabase
+        if usuario.es_demo:
+            return Resultado.exito(registro.id)
+
+        # Para el MVP, restringir también la inserción exclusivamente a los creadores autorizados
+        if not es_creador_autorizado(usuario):
+            return Resultado.fallo(
+                codigo=CODIGO_ACCESO_DENEGADO,
+                mensaje_usuario="Acceso denegado: solo los creadores autorizados registran telemetría de consumo.",
+                reintentable=False,
+            )
+
+        cliente = self._obtener_cliente_para_usuario(usuario)
+        if cliente is None:
+            return Resultado.fallo(
+                codigo=CODIGO_SESION_REQUERIDA,
+                mensaje_usuario="No se pudo obtener cliente autenticado para registrar consumo.",
+            )
+
+        try:
+            fila = {
+                "id": str(registro.id),
+                "operacion_id": str(registro.operacion_id),
+                "user_id": str(usuario.user_id),
+                "fecha": registro.fecha.isoformat(),
+                "modelo": registro.modelo,
+                "estado": registro.estado,
+                "duracion_ms": int(registro.duracion_ms),
+                "numero_llamadas": int(registro.numero_llamadas),
+                "numero_reintentos": int(registro.numero_reintentos),
+                "codigo_error": registro.codigo_error,
+                "prompt_tokens": registro.prompt_tokens,
+                "candidates_tokens": registro.candidates_tokens,
+                "thoughts_tokens": registro.thoughts_tokens,
+                "total_tokens": registro.total_tokens,
+                "cached_tokens": registro.cached_tokens,
+                "tarifa_version": registro.tarifa_version,
+                "costo_estimado": str(registro.costo_estimado) if registro.costo_estimado is not None else None,
+                "metadatos": registro.metadatos or {},
+            }
+
+            # Inserción idempotente e inmutable (ON CONFLICT DO NOTHING en Postgres):
+            # Se utiliza ignore_duplicates=True para que PostgREST no requiera permisos de UPDATE.
+            cliente.table("consumo_gemini").upsert(
+                fila, on_conflict="operacion_id", ignore_duplicates=True
+            ).execute()
+
+            return Resultado.exito(registro.id)
+
+        except Exception as e:
+            return self._traducir_error_bd(
+                e,
+                "Error al registrar métricas de consumo en la base de datos.",
+            )
+
+    def consultar_consumo_gemini(
+        self,
+        usuario: ContextoUsuario,
+        filtro: Optional[FiltroConsumoIA] = None,
+    ) -> Resultado[List[RegistroConsumoIA]]:
+        """Consulta registros de consumo de Gemini si el usuario es un creador autorizado."""
+        val = self._validar_contexto_usuario(usuario, "Se requiere una sesión activa para consultar el consumo.")
+        if val is not None:
+            return val
+
+        # Verificación estricta del lado del servidor: sólo creadores autorizados
+        if usuario.es_demo or not es_creador_autorizado(usuario):
+            return Resultado.fallo(
+                codigo=CODIGO_ACCESO_DENEGADO,
+                mensaje_usuario="Acceso denegado: el panel de consumo es exclusivo para los creadores autorizados.",
+                reintentable=False,
+            )
+
+        cliente = self._obtener_cliente_para_usuario(usuario)
+        if cliente is None:
+            return Resultado.fallo(
+                codigo=CODIGO_SESION_REQUERIDA,
+                mensaje_usuario="No se pudo obtener cliente autenticado para consultar consumo.",
+            )
+
+        try:
+            query = cliente.table("consumo_gemini").select("*").order("fecha", desc=True)
+
+            if filtro:
+                if filtro.user_id:
+                    query = query.eq("user_id", str(filtro.user_id))
+                if filtro.modelo:
+                    query = query.eq("modelo", filtro.modelo)
+                if filtro.estado:
+                    query = query.eq("estado", filtro.estado)
+                if filtro.fecha_desde:
+                    query = query.gte("fecha", filtro.fecha_desde.isoformat())
+                if filtro.fecha_hasta:
+                    query = query.lte("fecha", filtro.fecha_hasta.isoformat())
+
+            resp = query.execute()
+            filas = resp.data or []
+
+            registros: List[RegistroConsumoIA] = []
+            for f in filas:
+                f_uid = UUID(str(f["user_id"]))
+                costo_dec = Decimal(str(f["costo_estimado"])) if f.get("costo_estimado") is not None else None
+                fecha_val = datetime.fromisoformat(str(f["fecha"]))
+                if fecha_val.tzinfo is None:
+                    fecha_val = fecha_val.replace(tzinfo=timezone.utc)
+
+                registros.append(
+                    RegistroConsumoIA(
+                        id=UUID(str(f["id"])),
+                        operacion_id=UUID(str(f["operacion_id"])),
+                        user_id=f_uid,
+                        fecha=fecha_val,
+                        modelo=str(f.get("modelo", "")),
+                        estado=str(f.get("estado", "")),
+                        duracion_ms=int(f.get("duracion_ms", 0)),
+                        numero_llamadas=int(f.get("numero_llamadas", 1)),
+                        numero_reintentos=int(f.get("numero_reintentos", 0)),
+                        codigo_error=int(f["codigo_error"]) if f.get("codigo_error") is not None else None,
+                        prompt_tokens=int(f["prompt_tokens"]) if f.get("prompt_tokens") is not None else None,
+                        candidates_tokens=int(f["candidates_tokens"]) if f.get("candidates_tokens") is not None else None,
+                        thoughts_tokens=int(f["thoughts_tokens"]) if f.get("thoughts_tokens") is not None else None,
+                        total_tokens=int(f["total_tokens"]) if f.get("total_tokens") is not None else None,
+                        cached_tokens=int(f["cached_tokens"]) if f.get("cached_tokens") is not None else None,
+                        tarifa_version=f.get("tarifa_version"),
+                        costo_estimado=costo_dec,
+                        integrante_etiqueta=obtener_nombre_creador(f_uid),
+                        metadatos=f.get("metadatos"),
+                    )
+                )
+
+            return Resultado.exito(registros)
+
+        except Exception as e:
+            return self._traducir_error_bd(
+                e,
+                "Error al consultar métricas de consumo desde la base de datos.",
+            )
 

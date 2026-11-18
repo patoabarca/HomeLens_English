@@ -10,7 +10,7 @@ guardado e historial de exploraciones (M7).
 from __future__ import annotations
 import streamlit as st
 
-from homelens.config import cargar_configuracion
+from homelens.config import cargar_configuracion, es_creador_autorizado
 from homelens.acceso import obtener_usuario_actual, completar_acceso
 from homelens.modelos import RespuestaAcceso
 from homelens.ui.estado import inicializar_estado_sesion, cerrar_sesion_usuario
@@ -18,6 +18,7 @@ from homelens.ui.acceso import renderizar_pantalla_acceso
 from homelens.ui.captura import renderizar_pantalla_captura
 from homelens.ui.historial import renderizar_pantalla_historial
 from homelens.ui.cuestionarios import renderizar_pantalla_cuestionarios
+from homelens.ui.consumo import renderizar_pantalla_consumo
 
 
 def main() -> None:
@@ -135,6 +136,8 @@ def main() -> None:
                 "Desafíos Find It",
                 "Mi Progreso",
             ]
+            if es_creador_autorizado(st.session_state.usuario, config):
+                opciones_navegacion.append("Consumo de IA")
         else:
             opciones_navegacion = ["Acceso / Ingreso"]
 
@@ -221,6 +224,9 @@ def main() -> None:
     elif seccion == "Mi Progreso":
         st.header("📊 Mi Progreso")
         st.info("Tu historial de palabras exploradas y estadísticas de práctica se mostrarán aquí.")
+
+    elif seccion == "Consumo de IA":
+        renderizar_pantalla_consumo(config)
 
 
 if __name__ == "__main__":

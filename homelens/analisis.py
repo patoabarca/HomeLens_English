@@ -65,6 +65,7 @@ def analizar_exploracion(
     imagen: ImagenPreparada,
     operacion_id: UUID,
     adaptador: Optional[AdaptadorGemini] = None,
+    repositorio: Optional[Any] = None,
 ) -> Resultado[Exploracion]:
     """Analiza una imagen mediante Gemini y genera objetos educativos y preguntas de práctica.
 
@@ -76,6 +77,7 @@ def analizar_exploracion(
         imagen: Imagen preparada y validada en memoria.
         operacion_id: Identificador único de trazabilidad de la operación.
         adaptador: Adaptador de Gemini opcional (permite inyección de mocks para pruebas).
+        repositorio: Repositorio opcional para persistencia de consumo de Gemini.
 
     Returns:
         Resultado[Exploracion]: Exploración validada con objetos y actividades, o error controlado.
@@ -123,11 +125,27 @@ def analizar_exploracion(
 
     # 2. Cargar prompt e invocar modelo
     prompt = _cargar_prompt_exploracion()
+
+    repo_efectivo = repositorio
+    if repo_efectivo is None and not getattr(usuario, "es_demo", False):
+        try:
+            from homelens.datos.supabase import RepositorioSupabase
+            cfg_res = cargar_configuracion()
+            if cfg_res.ok and cfg_res.valor and cfg_res.valor.tiene_supabase:
+                repo_efectivo = RepositorioSupabase(
+                    supabase_url=cfg_res.valor.supabase_url,
+                    anon_key=cfg_res.valor.supabase_anon_key,
+                )
+        except Exception:
+            repo_efectivo = None
+
     res_ia = cliente_gemini.analizar_imagen_exploracion(
         imagen_bytes=imagen.contenido,
         mime_type=imagen.mime_type,
         instrucciones=prompt,
         operacion_id=operacion_id,
+        usuario=usuario,
+        repositorio=repo_efectivo,
     )
 
     if not res_ia.ok or res_ia.valor is None:
