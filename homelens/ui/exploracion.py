@@ -209,19 +209,29 @@ def mostrar_exploracion(
             width=0,
         )
 
-    # Cartel informativo del objeto actualmente enfocado sobre la fotografía
-    if objeto_enfocado_id is not None:
-        info_enfocado = next(
-            ((i + 1, o) for i, o in enumerate(exploracion.objetos) if str(o.objeto_id) == str(objeto_enfocado_id)),
-            None,
-        )
-        if info_enfocado:
-            num_f, obj_f = info_enfocado
-            st.success(f"🎯 **Objeto seleccionado: #{num_f} — {obj_f.nombre_en} / {obj_f.nombre_es}**")
+    # Cartel informativo del objeto actualmente enfocado y control opcional de ampliación
+    col_estado_foto, col_ampliar_foto = st.columns([3, 1], vertical_alignment="center")
+    with col_estado_foto:
+        if objeto_enfocado_id is not None:
+            info_enfocado = next(
+                ((i + 1, o) for i, o in enumerate(exploracion.objetos) if str(o.objeto_id) == str(objeto_enfocado_id)),
+                None,
+            )
+            if info_enfocado:
+                num_f, obj_f = info_enfocado
+                st.success(f"🎯 **Objeto seleccionado: #{num_f} — {obj_f.nombre_en} / {obj_f.nombre_es}**")
+            else:
+                st.info("👁️ Mostrando todos los objetos reconocidos en la fotografía.")
         else:
-            st.info("👁️ Mostrando todos los objetos reconocidos en la fotografía.")
-    else:
-        st.info("👁️ Mostrando todos los objetos reconocidos en la fotografía. Haz clic en **'Enfocar'** para aislar un objeto.")
+            st.info("👁️ Mostrando todos los objetos reconocidos en la fotografía. Haz clic en **'Enfocar'** para aislar un objeto.")
+
+    with col_ampliar_foto:
+        ampliar_imagen = st.toggle(
+            "🔍 Ampliar imagen",
+            value=False,
+            key=f"toggle_ampliar_foto_{exploracion.exploracion_id}",
+            help="Muestra la fotografía a ancho completo para apreciar objetos pequeños.",
+        )
 
     if imagen is not None and imagen.contenido:
         bytes_anotados = dibujar_recuadros(
@@ -235,11 +245,76 @@ def mostrar_exploracion(
             if objeto_enfocado_id is None
             else "Objeto seleccionado destacado con foco exclusivo"
         )
-        st.image(
-            bytes_anotados,
-            caption=f"Fotografía activa — {subtitulo_foto}",
-            use_container_width=True,
-        )
+
+        if ampliar_imagen:
+            with st.container(key="visor_foto_exploracion_ampliada"):
+                st.image(
+                    bytes_anotados,
+                    caption=f"Fotografía activa (vista ampliada) — {subtitulo_foto}",
+                    width="stretch",
+                )
+        else:
+            st.markdown(
+                """
+                <style>
+                .st-key-visor_foto_exploracion {
+                    width: 100% !important;
+                    align-items: center !important;
+                    overflow: hidden;
+                }
+                .st-key-visor_foto_exploracion > [data-testid="stElementContainer"],
+                .st-key-visor_foto_exploracion [data-testid="stFullScreenFrame"],
+                .st-key-visor_foto_exploracion [data-testid="stImage"] {
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    margin-left: auto !important;
+                    margin-right: auto !important;
+                }
+                .st-key-visor_foto_exploracion [data-testid="stImageContainer"] {
+                    width: fit-content !important;
+                    max-width: 100% !important;
+                    margin-left: auto !important;
+                    margin-right: auto !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    overflow: hidden !important;
+                }
+                .st-key-visor_foto_exploracion [data-testid="stImageContainer"] img {
+                    max-height: min(68vh, 640px) !important;
+                    max-width: 100% !important;
+                    width: auto !important;
+                    height: auto !important;
+                    object-fit: contain !important;
+                    display: block !important;
+                    margin-left: auto !important;
+                    margin-right: auto !important;
+                    border-radius: 8px;
+                }
+                .st-key-visor_foto_exploracion [data-testid="stImageCaption"] {
+                    text-align: center !important;
+                    width: 100% !important;
+                }
+                @media (max-width: 640px) {
+                    .st-key-visor_foto_exploracion [data-testid="stImageContainer"] img {
+                        max-height: 65vh !important;
+                    }
+                }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+            with st.container(key="visor_foto_exploracion", horizontal_alignment="center"):
+                st.image(
+                    bytes_anotados,
+                    caption=f"Fotografía activa — {subtitulo_foto}",
+                    width="content",
+                )
     else:
         st.info(
             "ℹ️ **Fotografía temporal no disponible:** La imagen original ya no reside en "

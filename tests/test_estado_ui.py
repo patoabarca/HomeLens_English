@@ -239,6 +239,93 @@ class TestEstadoUI(unittest.TestCase):
         self.assertEqual(len(at.exception), 0, "Excepción al pulsar Ver todos")
         self.assertIsNone(at.session_state.objeto_seleccionado_id)
 
+    def test_visor_responsivo_orientaciones_y_ampliacion_opcional(self):
+        """Comprueba que el visor responsivo soporte imágenes horizontales, verticales y cuadradas, y permita ampliar."""
+        from streamlit.testing.v1 import AppTest
+
+        orientaciones = [
+            ("horizontal", 1600, 900),
+            ("vertical", 720, 1280),
+            ("cuadrada", 1000, 1000),
+        ]
+
+        for etiqueta, ancho, alto in orientaciones:
+            with self.subTest(orientacion=etiqueta, ancho=ancho, alto=alto):
+                codigo_app = f"""
+import io
+from PIL import Image
+from uuid import UUID
+from datetime import datetime, timezone
+import streamlit as st
+from homelens.modelos import (
+    Exploracion,
+    ObjetoEducativo,
+    RecuadroNormalizado,
+    EstadoAnalisis,
+    ImagenPreparada,
+)
+from homelens.ui.exploracion import mostrar_exploracion
+from homelens.ui.estado import inicializar_estado_sesion
+
+if hasattr(st, "segmented_control"):
+    delattr(st, "segmented_control")
+if hasattr(st, "pills"):
+    delattr(st, "pills")
+
+inicializar_estado_sesion()
+
+img = Image.new("RGB", ({ancho}, {alto}), (210, 210, 210))
+buf = io.BytesIO()
+img.save(buf, format="JPEG")
+prep = ImagenPreparada(buf.getvalue(), "image/jpeg", {ancho}, {alto})
+
+exp_id = UUID("00000000-0000-0000-0000-000000000077")
+obj = ObjetoEducativo(
+    UUID("00000000-0000-0000-0000-000000000011"),
+    exp_id,
+    "Lamp",
+    "Lámpara",
+    RecuadroNormalizado(100, 150, 700, 850),
+    "A bright lamp.",
+    "Una lámpara brillante.",
+)
+exp = Exploracion(
+    exp_id,
+    UUID("00000000-0000-0000-0000-000000000088"),
+    datetime.now(timezone.utc),
+    EstadoAnalisis.UTILIZABLE,
+    [obj],
+)
+mostrar_exploracion(exp, prep)
+"""
+                at = AppTest.from_string(codigo_app)
+                at.run()
+                self.assertEqual(len(at.exception), 0, f"Error en orientación {etiqueta}: {at.exception}")
+
+                # Verificar CSS responsivo y centrado en modo predeterminado
+                markdown_unido = "\n".join(m.value for m in at.markdown)
+                self.assertIn("st-key-visor_foto_exploracion", markdown_unido)
+                self.assertIn('[data-testid="stElementContainer"]', markdown_unido)
+                self.assertIn('[data-testid="stFullScreenFrame"]', markdown_unido)
+                self.assertIn("align-items: center", markdown_unido)
+                self.assertIn("justify-content: center", markdown_unido)
+                self.assertIn("max-height: min(68vh, 640px)", markdown_unido)
+                self.assertIn("object-fit: contain", markdown_unido)
+                self.assertIn("width: auto", markdown_unido)
+                self.assertIn("max-width: 100%", markdown_unido)
+                self.assertIn("@media (max-width: 640px)", markdown_unido)
+
+                # Verificar existencia del toggle opcional de ampliación (desactivado por defecto)
+                toggles = [t for t in at.toggle if "toggle_ampliar_foto_" in (t.key or "")]
+                self.assertEqual(len(toggles), 1, "Debe existir un toggle opcional para ampliar la imagen")
+                self.assertFalse(toggles[0].value)
+
+                # Activar ampliación y verificar transición limpia sin límite de altura
+                toggles[0].set_value(True).run()
+                self.assertEqual(len(at.exception), 0, f"Error al ampliar orientación {etiqueta}")
+                markdown_ampliado = "\n".join(m.value for m in at.markdown)
+                self.assertNotIn("max-height: min(68vh, 640px)", markdown_ampliado)
+
 
 if __name__ == "__main__":
     unittest.main()
