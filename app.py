@@ -216,7 +216,7 @@ def main() -> None:
         renderizar_pantalla_historial(config)
 
     elif seccion == "Prácticas y Cuestionarios":
-        renderizar_pantalla_cuestionarios()
+        renderizar_pantalla_cuestionarios(config)
 
     elif seccion == "Desafíos Find It":
         renderizar_pantalla_find_it(config)
