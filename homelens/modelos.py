@@ -110,6 +110,7 @@ class EstadoAnalisis(str, Enum):
     UTILIZABLE = "UTILIZABLE"
     SIN_OBJETOS_CLAROS = "SIN_OBJETOS_CLAROS"
     REPETIR_CAPTURA = "REPETIR_CAPTURA"
+    FUERA_DE_ALCANCE = "FUERA_DE_ALCANCE"
 
 
 @dataclass(frozen=True)

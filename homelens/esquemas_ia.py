@@ -5,7 +5,7 @@ Compatibles con la serialización Schema de google.generativeai (sin 'default', 
 """
 
 from __future__ import annotations
-from typing import List, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel
 
 
@@ -45,7 +45,12 @@ class ActividadIA(BaseModel):
 
 class RespuestaExploracionIA(BaseModel):
     """Estructura completa de respuesta de análisis de imagen."""
-    estado: str
+    estado: Literal[
+        "UTILIZABLE",
+        "SIN_OBJETOS_CLAROS",
+        "REPETIR_CAPTURA",
+        "FUERA_DE_ALCANCE",
+    ]
     objetos: List[ObjetoIA]
     actividades: List[ActividadIA]
 

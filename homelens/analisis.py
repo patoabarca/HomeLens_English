@@ -169,7 +169,11 @@ def analizar_exploracion(
     ahora = datetime.now(timezone.utc)
 
     # Invariantes de coherencia entre estado y contenido
-    if estado_analisis in (EstadoAnalisis.SIN_OBJETOS_CLAROS, EstadoAnalisis.REPETIR_CAPTURA):
+    if estado_analisis in (
+        EstadoAnalisis.SIN_OBJETOS_CLAROS,
+        EstadoAnalisis.REPETIR_CAPTURA,
+        EstadoAnalisis.FUERA_DE_ALCANCE,
+    ):
         if respuesta_ia.objetos or respuesta_ia.actividades:
             return Resultado.fallo(
                 codigo=CODIGO_RESPUESTA_INVALIDA,
