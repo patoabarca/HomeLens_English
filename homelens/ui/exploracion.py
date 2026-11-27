@@ -86,14 +86,15 @@ def mostrar_exploracion(
         return
 
     if exploracion.estado == EstadoAnalisis.REPETIR_CAPTURA:
-        st.warning("📸 **Recomendación: Tomar una nueva captura**")
-        st.markdown(
-            """
-            La imagen enviada no cuenta con la nitidez o el encuadre adecuado para el aprendizaje.
-            Te recomendamos capturar una nueva fotografía con mejor iluminación.
-            """
-        )
-        if st.button("🔄 Tomar nueva fotografía", type="primary", use_container_width=True):
+        st.warning("No pudimos identificar el ambiente. Probá con una foto más clara y amplia")
+        if st.button("🔄 Cargar otra foto", type="primary", use_container_width=True):
+            descartar_imagen_actual()
+            st.rerun()
+        return
+
+    if exploracion.estado == EstadoAnalisis.FUERA_DE_ALCANCE:
+        st.warning("Elegí una foto tomada dentro de una casa o departamento")
+        if st.button("🔄 Cargar otra foto", type="primary", use_container_width=True):
             descartar_imagen_actual()
             st.rerun()
         return

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 import unittest
+from unittest.mock import MagicMock, patch
 from datetime import datetime, timezone
 from uuid import uuid4
 import streamlit as st
 
+from homelens.analisis import analizar_exploracion
+from homelens.errores import Resultado
+from homelens.esquemas_ia import ActividadIA, ObjetoIA, OpcionIA, RecuadroIA, RespuestaExploracionIA
 from homelens.modelos import (
     ContextoUsuario,
     Exploracion,
@@ -163,6 +167,111 @@ class TestEstadoUI(unittest.TestCase):
             mostrar_exploracion(exploracion=exp_repetir, imagen=None)
         except Exception as e:
             self.fail(f"mostrar_exploracion falló en estados pedagógicos no utilizables: {e}")
+
+    def test_fuera_de_alcance_y_repetir_muestran_mensaje_y_ocultan_resultados(self):
+        """Los estados nuevos muestran su mensaje, permiten reintentar y no renderizan resultados."""
+        mensajes = {
+            EstadoAnalisis.FUERA_DE_ALCANCE: "Elegí una foto tomada dentro de una casa o departamento",
+            EstadoAnalisis.REPETIR_CAPTURA: "No pudimos identificar el ambiente. Probá con una foto más clara y amplia",
+        }
+
+        for estado, mensaje in mensajes.items():
+            exploracion = Exploracion(
+                exploracion_id=uuid4(),
+                user_id=uuid4(),
+                creada_en=datetime.now(timezone.utc),
+                estado=estado,
+                objetos=[],
+                actividades=[],
+            )
+            with (
+                patch("homelens.ui.exploracion.st.warning") as warning,
+                patch("homelens.ui.exploracion.st.button", return_value=False) as button,
+                patch("homelens.ui.exploracion.st.header") as header,
+                patch("homelens.ui.exploracion.st.image") as image,
+                patch("homelens.ui.exploracion.dibujar_recuadros") as dibujar_recuadros,
+            ):
+                mostrar_exploracion(exploracion, imagen=None)
+
+            warning.assert_called_once_with(mensaje)
+            button.assert_called_once()
+            self.assertIn("otra foto", button.call_args.args[0].lower())
+            header.assert_not_called()
+            image.assert_not_called()
+            dibujar_recuadros.assert_not_called()
+
+    def test_cargar_foto_rechazada_o_ambigua_limpia_exploracion_previa(self):
+        """Un resultado anterior válido se invalida al analizar una foto rechazada o ambigua."""
+        usuario = ContextoUsuario(user_id=uuid4(), sesion_id="sesion-test")
+        imagen = ImagenPreparada(contenido=b"foto-valida", mime_type="image/jpeg", ancho=640, alto=480)
+        respuesta_valida = RespuestaExploracionIA(
+            estado="UTILIZABLE",
+            objetos=[
+                ObjetoIA(
+                    id_local="obj_1",
+                    nombre_en="chair",
+                    nombre_es="silla",
+                    recuadro=RecuadroIA(ymin=100, xmin=100, ymax=400, xmax=400),
+                    frase_en="This is a chair.",
+                    frase_es="Esta es una silla.",
+                )
+            ],
+            actividades=[
+                ActividadIA(
+                    id_local="act_1",
+                    objetos_relacionados=["obj_1"],
+                    pregunta="What is this?",
+                    opciones=[
+                        OpcionIA(opcion_id="A", texto="A chair"),
+                        OpcionIA(opcion_id="B", texto="A table"),
+                        OpcionIA(opcion_id="C", texto="A lamp"),
+                    ],
+                    opcion_correcta_id="A",
+                    explicacion="This is a chair.",
+                )
+            ],
+        )
+
+        for estado_rechazado in (EstadoAnalisis.FUERA_DE_ALCANCE, EstadoAnalisis.REPETIR_CAPTURA):
+            st.session_state.imagen_cargada_bytes = b"foto-valida"
+            st.session_state.imagen_preparada = imagen
+            respuesta_previa = analizar_exploracion(
+                usuario,
+                imagen,
+                uuid4(),
+                adaptador=self._adaptador_simulado(respuesta_valida),
+            )
+            self.assertTrue(respuesta_previa.ok)
+            st.session_state.exploracion_actual = respuesta_previa.valor
+            st.session_state.objeto_seleccionado_id = respuesta_previa.valor.objetos[0].objeto_id
+            st.session_state.imagen_asociada_id = hash(imagen.contenido)
+
+            registrar_nueva_imagen(f"foto-{estado_rechazado.value}".encode(), "archivo")
+            self.assertIsNone(st.session_state.exploracion_actual)
+            self.assertIsNone(st.session_state.objeto_seleccionado_id)
+            self.assertIsNone(st.session_state.imagen_asociada_id)
+
+            respuesta_rechazada = RespuestaExploracionIA(
+                estado=estado_rechazado.value,
+                objetos=[],
+                actividades=[],
+            )
+            resultado = analizar_exploracion(
+                usuario,
+                imagen,
+                uuid4(),
+                adaptador=self._adaptador_simulado(respuesta_rechazada),
+            )
+            self.assertTrue(resultado.ok)
+            self.assertEqual(resultado.valor.estado, estado_rechazado)
+            self.assertEqual(resultado.valor.objetos, [])
+            self.assertEqual(resultado.valor.actividades, [])
+
+    @staticmethod
+    def _adaptador_simulado(respuesta):
+        adaptador = MagicMock()
+        adaptador.analizar_imagen_exploracion.return_value = Resultado.exito(respuesta)
+        return adaptador
 
     def test_regresion_interaccion_botones_tarjeta_y_selector_con_apptest(self):
         """Prueba de regresión interactiva con AppTest: pulsa botones de tarjetas y cambia el selector."""

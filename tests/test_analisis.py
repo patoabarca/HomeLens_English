@@ -76,8 +76,8 @@ class TestAnalisisGemini(unittest.TestCase):
     # 2. Pruebas de casos exitosos
     # =====================================================================
 
-    def test_exploracion_valida_con_un_objeto_y_actividad(self) -> None:
-        """Verifica el análisis exitoso con 1 objeto educativo y 1 actividad."""
+    def test_compatibilidad_con_respuesta_valida_formato_anterior(self) -> None:
+        """Acepta respuestas válidas con el formato anterior de objetos y actividades."""
         respuesta_ia = RespuestaExploracionIA(
             estado="UTILIZABLE",
             objetos=[
@@ -204,6 +204,22 @@ class TestAnalisisGemini(unittest.TestCase):
         self.assertEqual(len(exploracion.objetos), 0)
         self.assertEqual(len(exploracion.actividades), 0)
 
+    def test_resultado_valido_fuera_de_alcance(self) -> None:
+        """Verifica que una imagen claramente ajena al MVP sea rechazada sin contenido."""
+        respuesta_ia = RespuestaExploracionIA(
+            estado="FUERA_DE_ALCANCE",
+            objetos=[],
+            actividades=[],
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertTrue(resultado.ok)
+        exploracion = resultado.valor
+        self.assertEqual(exploracion.estado, EstadoAnalisis.FUERA_DE_ALCANCE)
+        self.assertEqual(exploracion.objetos, [])
+        self.assertEqual(exploracion.actividades, [])
+
     def test_resultado_valido_repetir_captura(self) -> None:
         """Verifica la respuesta cuando el modelo solicita repetir la captura (imagen borrosa/oscura)."""
         respuesta_ia = RespuestaExploracionIA(
@@ -226,7 +242,7 @@ class TestAnalisisGemini(unittest.TestCase):
 
     def test_rechazo_estado_desconocido(self) -> None:
         """Rechaza estados no definidos en el contrato."""
-        respuesta_ia = RespuestaExploracionIA(
+        respuesta_ia = RespuestaExploracionIA.model_construct(
             estado="ESTADO_INVENTADO_123",
             objetos=[],
             actividades=[],
@@ -237,6 +253,56 @@ class TestAnalisisGemini(unittest.TestCase):
         self.assertFalse(resultado.ok)
         self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
         self.assertIn("no es reconocido", resultado.error.mensaje_usuario)
+
+    def test_rechazo_fuera_de_alcance_con_objetos(self) -> None:
+        """Rechaza FUERA_DE_ALCANCE cuando contiene objetos."""
+        respuesta_ia = RespuestaExploracionIA(
+            estado="FUERA_DE_ALCANCE",
+            objetos=[
+                ObjetoIA(
+                    id_local="obj_1",
+                    nombre_en="chair",
+                    nombre_es="silla",
+                    recuadro=RecuadroIA(ymin=10, xmin=10, ymax=100, xmax=100),
+                    frase_en="A chair.",
+                    frase_es="Una silla.",
+                )
+            ],
+            actividades=[],
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("Inconsistencia", resultado.error.mensaje_usuario)
+
+    def test_rechazo_fuera_de_alcance_con_actividades(self) -> None:
+        """Rechaza FUERA_DE_ALCANCE cuando contiene actividades."""
+        respuesta_ia = RespuestaExploracionIA(
+            estado="FUERA_DE_ALCANCE",
+            objetos=[],
+            actividades=[
+                ActividadIA(
+                    id_local="act_1",
+                    objetos_relacionados=["obj_1"],
+                    pregunta="What is this?",
+                    opciones=[
+                        OpcionIA(opcion_id="A", texto="A chair"),
+                        OpcionIA(opcion_id="B", texto="A table"),
+                        OpcionIA(opcion_id="C", texto="A lamp"),
+                    ],
+                    opcion_correcta_id="A",
+                    explicacion="A chair.",
+                )
+            ],
+        )
+        adaptador = self._crear_adaptador_mock(Resultado.exito(respuesta_ia))
+        resultado = analizar_exploracion(self.usuario, self.imagen_prueba, self.operacion_id, adaptador=adaptador)
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, CODIGO_RESPUESTA_INVALIDA)
+        self.assertIn("Inconsistencia", resultado.error.mensaje_usuario)
 
     def test_rechazo_inconsistencia_sin_objetos_con_contenido(self) -> None:
         """Rechaza estado SIN_OBJETOS_CLAROS si incluye objetos."""
