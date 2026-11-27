@@ -20,6 +20,7 @@ from homelens.ui.historial import renderizar_pantalla_historial
 from homelens.ui.cuestionarios import renderizar_pantalla_cuestionarios
 from homelens.ui.consumo import renderizar_pantalla_consumo
 from homelens.ui.find_it import renderizar_pantalla_find_it
+from homelens.ui.progreso import renderizar_pantalla_progreso
 
 
 def main() -> None:
@@ -222,8 +223,7 @@ def main() -> None:
         renderizar_pantalla_find_it(config)
 
     elif seccion == "Mi Progreso":
-        st.header("📊 Mi Progreso")
-        st.info("Tu historial de palabras exploradas y estadísticas de práctica se mostrarán aquí.")
+        renderizar_pantalla_progreso(config)
 
     elif seccion == "Consumo de IA":
         renderizar_pantalla_consumo(config)
