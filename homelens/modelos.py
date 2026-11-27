@@ -299,7 +299,60 @@ class ResumenProgreso:
     """Métricas y estado global de progreso de un estudiante."""
     palabras_exploradas: list[PalabraResumen]
     total_intentos: int
-    resultados_por_tipo: dict[str, int]
+    resultados_por_tipo: dict[str, Any]
+
+    @property
+    def palabras_practicadas(self) -> list[PalabraResumen]:
+        """Palabras únicas con práctica evaluable (de exploraciones guardadas + identificables del vocabulario base de Find It).
+
+        Las palabras del vocabulario base de Find It que aún no fueron exploradas en una fotografía
+        se incluyen aquí con estado PRACTICADA pero NO se agregan a `palabras_exploradas`.
+        """
+        extra_base: list[PalabraResumen] = list(
+            self.resultados_por_tipo.get("palabras_base_practicadas") or []
+        )
+        practicadas_exploradas = [
+            p for p in self.palabras_exploradas if p.estado == EstadoPalabra.PRACTICADA
+        ]
+        return practicadas_exploradas + extra_base
+
+    @property
+    def palabras_solo_exploradas(self) -> list[PalabraResumen]:
+        """Subconjunto de palabras exploradas que aún no registran práctica evaluable."""
+        return [p for p in self.palabras_exploradas if p.estado == EstadoPalabra.EXPLORADA]
+
+    @property
+    def total_palabras_exploradas(self) -> int:
+        """Cantidad total de palabras únicas exploradas en fotografías guardadas."""
+        return len(self.palabras_exploradas)
+
+    @property
+    def total_palabras_practicadas(self) -> int:
+        """Cantidad total de palabras únicas identificables con práctica evaluable (exploradas practicadas + base Find It)."""
+        return len(self.palabras_practicadas)
+
+    @property
+    def tiene_actividad(self) -> bool:
+        """Indica si el usuario registra al menos una palabra explorada o un intento guardado."""
+        return bool(self.palabras_exploradas or self.total_intentos > 0)
+
+    @property
+    def porcentaje_aciertos_cuestionarios(self) -> Optional[float]:
+        """Porcentaje de aciertos en cuestionarios sobre intentos evaluables, o None si no hay datos."""
+        val = self.resultados_por_tipo.get("cuestionarios_porcentaje_aciertos")
+        return float(val) if val is not None else None
+
+    @property
+    def porcentaje_aciertos_find_it(self) -> Optional[float]:
+        """Porcentaje de aciertos en Find It excluyendo indeterminables del denominador, o None si no hay evaluables."""
+        val = self.resultados_por_tipo.get("find_it_porcentaje_aciertos")
+        return float(val) if val is not None else None
+
+    @property
+    def porcentaje_aciertos_global(self) -> Optional[float]:
+        """Porcentaje global de aciertos sobre intentos evaluables (excluyendo indeterminables), o None si no hay evaluables."""
+        val = self.resultados_por_tipo.get("porcentaje_aciertos_evaluables")
+        return float(val) if val is not None else None
 
 
 # =====================================================================
