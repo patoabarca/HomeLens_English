@@ -19,6 +19,7 @@ from homelens.ui.captura import renderizar_pantalla_captura
 from homelens.ui.historial import renderizar_pantalla_historial
 from homelens.ui.cuestionarios import renderizar_pantalla_cuestionarios
 from homelens.ui.consumo import renderizar_pantalla_consumo
+from homelens.ui.find_it import renderizar_pantalla_find_it
 
 
 def main() -> None:
@@ -218,8 +219,7 @@ def main() -> None:
         renderizar_pantalla_cuestionarios()
 
     elif seccion == "Desafíos Find It":
-        st.header("🎯 Desafíos Find It")
-        st.info("El módulo de desafíos interactivos por categoría se activará en las siguientes etapas.")
+        renderizar_pantalla_find_it(config)
 
     elif seccion == "Mi Progreso":
         st.header("📊 Mi Progreso")

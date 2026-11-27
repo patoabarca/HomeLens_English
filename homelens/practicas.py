@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 import random
+from datetime import datetime, timezone
 from typing import Optional
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5, NAMESPACE_DNS
 
 from homelens.errores import (
     Resultado,
@@ -19,6 +20,11 @@ from homelens.modelos import (
     DesafioFindIt,
     ImagenPreparada,
     ResultadoIntento,
+    Exploracion,
+    EstadoFindIt,
+    VerificacionFindIt,
+    IntentoPractica,
+    TipoIntento,
 )
 
 
@@ -115,4 +121,89 @@ def validar_y_responder_actividad(
         opcion_correcta_id=actividad.opcion_correcta_id,
         explicacion=actividad.explicacion,
         intento_id=id_intento_efectivo,
+    )
+
+
+_DESAFIOS_PREDETERMINADOS_FIND_IT: tuple[tuple[str, str], ...] = (
+    ("Coffee Mug", "Taza de café"),
+    ("Book", "Libro"),
+    ("Chair", "Silla"),
+    ("Lamp", "Lámpara"),
+    ("Keys", "Llaves"),
+    ("Spoon", "Cuchara"),
+)
+
+
+def obtener_desafios_find_it_disponibles(
+    usuario: ContextoUsuario,
+    exploracion_actual: Optional[Exploracion] = None,
+) -> list[DesafioFindIt]:
+    """Construye la lista de desafíos Find It disponibles para la sesión.
+
+    Prioriza objetos descubiertos en la exploración activa y completa con
+    vocabulario doméstico base usando UUIDs deterministas para estabilidad en UI.
+    """
+    ahora = datetime.now(timezone.utc)
+    desafios: list[DesafioFindIt] = []
+    vistos_en: set[str] = set()
+
+    if exploracion_actual is not None and exploracion_actual.objetos:
+        for obj in exploracion_actual.objetos:
+            clave = obj.nombre_en.strip().lower()
+            if not clave or clave in vistos_en:
+                continue
+            vistos_en.add(clave)
+            desafios.append(
+                DesafioFindIt(
+                    desafio_id=uuid5(NAMESPACE_DNS, f"findit:{usuario.user_id}:{obj.objeto_id}"),
+                    user_id=usuario.user_id,
+                    objeto_origen_id=obj.objeto_id,
+                    nombre_en=obj.nombre_en,
+                    nombre_es=obj.nombre_es,
+                    creado_en=exploracion_actual.creada_en,
+                )
+            )
+
+    for nombre_en, nombre_es in _DESAFIOS_PREDETERMINADOS_FIND_IT:
+        clave = nombre_en.strip().lower()
+        if clave in vistos_en:
+            continue
+        vistos_en.add(clave)
+        objeto_base_id = uuid5(NAMESPACE_DNS, f"homelens:objeto_base:{clave}")
+        desafio_id = uuid5(NAMESPACE_DNS, f"homelens:findit:{usuario.user_id}:{clave}")
+        desafios.append(
+            DesafioFindIt(
+                desafio_id=desafio_id,
+                user_id=usuario.user_id,
+                objeto_origen_id=objeto_base_id,
+                nombre_en=nombre_en,
+                nombre_es=nombre_es,
+                creado_en=ahora,
+            )
+        )
+
+    return desafios
+
+
+def construir_intento_find_it(
+    usuario: ContextoUsuario,
+    desafio: DesafioFindIt,
+    verificacion: VerificacionFindIt,
+    intento_id: Optional[UUID] = None,
+    fecha: Optional[datetime] = None,
+) -> IntentoPractica:
+    """Convierte el resultado de verificación Find It en un IntentoPractica listo para persistencia (Parte 10)."""
+    mapa_resultados = {
+        EstadoFindIt.ENCONTRADO: ResultadoIntento.CORRECTO,
+        EstadoFindIt.NO_ENCONTRADO: ResultadoIntento.INCORRECTO,
+        EstadoFindIt.INDETERMINABLE: ResultadoIntento.INDETERMINABLE,
+    }
+    return IntentoPractica(
+        intento_id=intento_id or uuid4(),
+        user_id=usuario.user_id,
+        tipo=TipoIntento.FIND_IT,
+        fecha=fecha or datetime.now(timezone.utc),
+        desafio_id=desafio.desafio_id,
+        resultado=mapa_resultados[verificacion.estado],
+        objeto_ids=[desafio.objeto_origen_id],
     )

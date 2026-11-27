@@ -75,6 +75,47 @@ def inicializar_estado_sesion() -> None:
         st.session_state.cuestionario_exploracion_id = None
     if "cuestionario_finalizado" not in st.session_state:
         st.session_state.cuestionario_finalizado = False
+    # Estado de desafíos Find It (M6 - Partes 11 y 12)
+    if "find_it_desafio_id" not in st.session_state:
+        st.session_state.find_it_desafio_id = None
+    if "find_it_imagen_bytes" not in st.session_state:
+        st.session_state.find_it_imagen_bytes = None
+    if "find_it_imagen_preparada" not in st.session_state:
+        st.session_state.find_it_imagen_preparada = None
+    if "find_it_verificacion" not in st.session_state:
+        st.session_state.find_it_verificacion = None
+    if "find_it_ultimo_intento" not in st.session_state:
+        st.session_state.find_it_ultimo_intento = None
+    if "find_it_ultimo_desafio" not in st.session_state:
+        st.session_state.find_it_ultimo_desafio = None
+    if "find_it_error" not in st.session_state:
+        st.session_state.find_it_error = None
+    if "find_it_origen_imagen" not in st.session_state:
+        st.session_state.find_it_origen_imagen = "archivo"
+    if "find_it_uploader_version" not in st.session_state:
+        st.session_state.find_it_uploader_version = 0
+    if "find_it_camera_version" not in st.session_state:
+        st.session_state.find_it_camera_version = 0
+
+
+def limpiar_resultado_find_it() -> None:
+    """Limpia el resultado de verificación e intento activo del juego Find It."""
+    st.session_state.find_it_verificacion = None
+    st.session_state.find_it_ultimo_intento = None
+    st.session_state.find_it_ultimo_desafio = None
+    st.session_state.find_it_error = None
+
+
+def limpiar_datos_find_it() -> None:
+    """Limpia por completo la fotografía temporal, verificación y selección de Find It."""
+    if st.session_state.get("find_it_imagen_preparada") is not None:
+        liberar_imagen(st.session_state.find_it_imagen_preparada)
+    st.session_state.find_it_imagen_bytes = None
+    st.session_state.find_it_imagen_preparada = None
+    st.session_state.find_it_desafio_id = None
+    limpiar_resultado_find_it()
+    st.session_state.find_it_uploader_version = st.session_state.get("find_it_uploader_version", 0) + 1
+    st.session_state.find_it_camera_version = st.session_state.get("find_it_camera_version", 0) + 1
 
 
 def limpiar_datos_cuestionario() -> None:
@@ -171,8 +212,9 @@ def cerrar_sesion_usuario(config: Optional[Any] = None) -> None:
     from homelens.acceso import cerrar_sesion as ejecutar_cerrar_sesion
     ejecutar_cerrar_sesion(sesion_id=sesion_id, config=config)
 
-    # Limpiar todos los datos de imagen, exploración y selecciones
+    # Limpiar todos los datos de imagen, exploración, Find It y selecciones
     limpiar_datos_exploracion()
+    limpiar_datos_find_it()
 
     # Descartar referencias al usuario
     st.session_state.usuario = None

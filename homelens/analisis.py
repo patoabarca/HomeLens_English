@@ -20,7 +20,7 @@ from homelens.errores import (
     CODIGO_SESION_REQUERIDA,
     CODIGO_ACCESO_DENEGADO,
 )
-from homelens.esquemas_ia import RespuestaExploracionIA
+from homelens.esquemas_ia import RespuestaExploracionIA, RespuestaFindItIA
 from homelens.integraciones.gemini import AdaptadorGemini
 from homelens.modelos import (
     ContextoUsuario,
@@ -34,6 +34,7 @@ from homelens.modelos import (
     DesafioFindIt,
     VerificacionFindIt,
     EstadoAnalisis,
+    EstadoFindIt,
 )
 
 
@@ -46,6 +47,21 @@ def _cargar_prompt_exploracion() -> str:
         except Exception:
             pass
     return "You are HomeLens English. Analyze the image and extract prominent everyday objects with quiz questions."
+
+
+def _cargar_prompt_find_it(objeto_objetivo: str) -> str:
+    """Lee las instrucciones de verificación Find It y sustituye el objeto buscado."""
+    ruta_prompt = Path(__file__).parent / "prompts" / "find_it.txt"
+    if ruta_prompt.exists():
+        try:
+            plantilla = ruta_prompt.read_text(encoding="utf-8").strip()
+            return plantilla.replace("{target_object}", objeto_objetivo)
+        except Exception:
+            pass
+    return (
+        f"You are verifying a 'Find It' challenge for HomeLens English. Target object: {objeto_objetivo}. "
+        "Return ENCONTRADO, NO_ENCONTRADO, or INDETERMINABLE strictly adhering to the JSON schema."
+    )
 
 
 def obtener_actividades_publicas(actividades: list[Actividad]) -> list[ActividadPublica]:
@@ -505,11 +521,132 @@ def verificar_find_it(
     usuario: ContextoUsuario,
     imagen: ImagenPreparada,
     desafio: DesafioFindIt,
-    operacion_id: UUID,
+    operacion_id: Optional[UUID] = None,
+    adaptador: Optional[AdaptadorGemini] = None,
+    repositorio: Optional[Any] = None,
 ) -> Resultado[VerificacionFindIt]:
-    """Verifica si la imagen contiene el objeto del desafío Find It (Parte 11)."""
-    return Resultado.fallo(
-        codigo=CODIGO_SERVICIO_NO_DISPONIBLE,
-        mensaje_usuario="La verificación de Find It se integrará en la Parte 11.",
-        operacion_id=operacion_id,
+    """Verifica con Gemini si la fotografía contiene el objeto del desafío Find It.
+
+    Retorna uno de tres estados de dominio: ENCONTRADO, NO_ENCONTRADO o INDETERMINABLE.
+    """
+    op_id = operacion_id or uuid4()
+
+    if (
+        usuario is None
+        or not isinstance(usuario, ContextoUsuario)
+        or usuario.user_id is None
+        or not usuario.sesion_id
+    ):
+        return Resultado.fallo(
+            codigo=CODIGO_SESION_REQUERIDA,
+            mensaje_usuario="Se requiere una sesión de usuario activa para verificar desafíos Find It.",
+            reintentable=False,
+            operacion_id=op_id,
+        )
+
+    if not imagen or not imagen.contenido:
+        return Resultado.fallo(
+            codigo=CODIGO_IMAGEN_INVALIDA,
+            mensaje_usuario="No se proporcionó una imagen válida para verificar el desafío.",
+            reintentable=False,
+            operacion_id=op_id,
+        )
+
+    if desafio is None or not isinstance(desafio, DesafioFindIt) or not (desafio.nombre_en or "").strip():
+        return Resultado.fallo(
+            codigo=CODIGO_RESPUESTA_INVALIDA,
+            mensaje_usuario="El desafío Find It seleccionado no es válido.",
+            reintentable=False,
+            operacion_id=op_id,
+        )
+
+    cliente_gemini = adaptador
+    if cliente_gemini is None:
+        cfg_res = cargar_configuracion()
+        if not cfg_res.ok or not cfg_res.valor:
+            return Resultado.fallo(
+                codigo=CODIGO_SERVICIO_NO_DISPONIBLE,
+                mensaje_usuario="No se pudo cargar la configuración para conectar con Gemini.",
+                reintentable=False,
+                operacion_id=op_id,
+            )
+        config = cfg_res.valor
+        cliente_gemini = AdaptadorGemini(
+            api_key=config.gemini_api_key,
+            modelo=config.gemini_model,
+            timeout_segundos=config.gemini_timeout_seconds,
+            max_reintentos=config.gemini_max_retries,
+        )
+
+    repo_efectivo = repositorio
+    if repo_efectivo is None and not getattr(usuario, "es_demo", False):
+        try:
+            from homelens.datos.supabase import RepositorioSupabase
+            cfg_res = cargar_configuracion()
+            if cfg_res.ok and cfg_res.valor and cfg_res.valor.tiene_supabase:
+                repo_efectivo = RepositorioSupabase(
+                    supabase_url=cfg_res.valor.supabase_url,
+                    anon_key=cfg_res.valor.supabase_anon_key,
+                )
+        except Exception:
+            repo_efectivo = None
+
+    nombre_en = desafio.nombre_en.strip()
+    nombre_es = (desafio.nombre_es or "").strip()
+    objeto_objetivo = f"{nombre_en} ({nombre_es})" if nombre_es else nombre_en
+    instrucciones = _cargar_prompt_find_it(objeto_objetivo)
+
+    res_ia = cliente_gemini.verificar_imagen_find_it(
+        imagen_bytes=imagen.contenido,
+        mime_type=imagen.mime_type,
+        instrucciones=instrucciones,
+        objeto_objetivo=objeto_objetivo,
+        operacion_id=op_id,
+        usuario=usuario,
+        repositorio=repo_efectivo,
+    )
+
+    if not res_ia.ok or res_ia.valor is None:
+        return Resultado.fallo(error=res_ia.error)
+
+    respuesta_ia: RespuestaFindItIA = res_ia.valor
+    estado_raw = (respuesta_ia.estado or "").strip().upper()
+    try:
+        estado_find_it = EstadoFindIt(estado_raw)
+    except ValueError:
+        return Resultado.fallo(
+            codigo=CODIGO_RESPUESTA_INVALIDA,
+            mensaje_usuario=f"El estado de verificación Find It ('{respuesta_ia.estado}') no es reconocido por el sistema.",
+            reintentable=False,
+            operacion_id=op_id,
+        )
+
+    recuadro_dom: Optional[RecuadroNormalizado] = None
+    if estado_find_it == EstadoFindIt.ENCONTRADO and respuesta_ia.recuadro_encontrado is not None:
+        rec_ia = respuesta_ia.recuadro_encontrado
+        try:
+            recuadro_dom = RecuadroNormalizado(
+                ymin=int(rec_ia.ymin),
+                xmin=int(rec_ia.xmin),
+                ymax=int(rec_ia.ymax),
+                xmax=int(rec_ia.xmax),
+            )
+        except ValueError:
+            recuadro_dom = None
+
+    mensaje = (respuesta_ia.mensaje or "").strip()
+    if not mensaje:
+        if estado_find_it == EstadoFindIt.ENCONTRADO:
+            mensaje = f"¡Excelente! Se identificó '{nombre_en}' en la fotografía."
+        elif estado_find_it == EstadoFindIt.NO_ENCONTRADO:
+            mensaje = f"No se observó '{nombre_en}' en esta fotografía. ¡Intenta nuevamente!"
+        else:
+            mensaje = "No se pudo determinar con claridad si el objeto está presente. Toma una foto más nítida e iluminada."
+
+    return Resultado.exito(
+        VerificacionFindIt(
+            estado=estado_find_it,
+            mensaje=mensaje,
+            recuadro_encontrado=recuadro_dom,
+        )
     )

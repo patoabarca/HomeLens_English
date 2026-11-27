@@ -29,7 +29,7 @@ from homelens.errores import (
     CODIGO_RESPUESTA_INVALIDA,
     CODIGO_ACCESO_DENEGADO,
 )
-from homelens.esquemas_ia import RespuestaExploracionIA
+from homelens.esquemas_ia import RespuestaExploracionIA, RespuestaFindItIA
 from homelens.modelos import EventoTecnico, ContextoUsuario
 from homelens.telemetria import registrar_evento
 
@@ -75,28 +75,19 @@ class AdaptadorGemini:
             http_options=types.HttpOptions(timeout=int(self.timeout_segundos * 1000)),
         )
 
-    def analizar_imagen_exploracion(
+    def _ejecutar_llamada_multimodal(
         self,
         imagen_bytes: bytes,
         mime_type: str,
         instrucciones: str,
+        prompt_usuario: str,
+        esquema_respuesta: Any,
+        tipo_operacion: str,
         operacion_id: Optional[UUID] = None,
         usuario: Optional[ContextoUsuario] = None,
         repositorio: Optional[Any] = None,
-    ) -> Resultado[RespuestaExploracionIA]:
-        """Envía una imagen a Gemini con instrucciones y esquema estructurado.
-
-        Args:
-            imagen_bytes: Bytes limpios de la imagen preparada.
-            mime_type: Tipo MIME ('image/jpeg' o 'image/png').
-            instrucciones: Prompt educativo versionado.
-            operacion_id: Identificador único de trazabilidad.
-            usuario: Contexto de identidad del usuario activo.
-            repositorio: Repositorio para persistir métricas de consumo.
-
-        Returns:
-            Resultado[RespuestaExploracionIA]: Respuesta estructurada o error controlado.
-        """
+    ) -> Resultado[Any]:
+        """Ejecuta una llamada multimodal estructurada a Gemini con reintentos y telemetría."""
         op_id = operacion_id or uuid4()
         usr = usuario or self.usuario
         repo = repositorio or self.repositorio
@@ -119,7 +110,7 @@ class AdaptadorGemini:
 
         try:
             cliente = self._obtener_cliente()
-        except Exception as e:
+        except Exception:
             return Resultado.fallo(
                 codigo=CODIGO_SERVICIO_NO_DISPONIBLE,
                 mensaje_usuario="Error al inicializar el cliente de Gemini.",
@@ -127,14 +118,13 @@ class AdaptadorGemini:
                 operacion_id=op_id,
             )
 
-        # Preparación de la parte multimodal de imagen y configuración de generación
         try:
             parte_imagen = types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type)
             config_generacion = types.GenerateContentConfig(
                 system_instruction=instrucciones,
                 temperature=0.2,
                 response_mime_type="application/json",
-                response_schema=RespuestaExploracionIA,
+                response_schema=esquema_respuesta,
                 http_options=types.HttpOptions(timeout=int(self.timeout_segundos * 1000)),
             )
         except Exception:
@@ -153,16 +143,14 @@ class AdaptadorGemini:
         while intentos <= self.max_reintentos:
             intentos += 1
             try:
-                # Invocación multimodal a la API mediante models.generate_content
                 respuesta = cliente.models.generate_content(
                     model=self.modelo,
-                    contents=[parte_imagen, "Analyze this image and identify educational objects according to instructions."],
+                    contents=[parte_imagen, prompt_usuario],
                     config=config_generacion,
                 )
 
                 duracion_ms = int((time.perf_counter() - inicio) * 1000)
 
-                # Extraer metadatos oficiales de consumo (usage_metadata)
                 uso_reportado = None
                 if hasattr(respuesta, "usage_metadata") and respuesta.usage_metadata:
                     try:
@@ -176,7 +164,6 @@ class AdaptadorGemini:
                     except Exception:
                         uso_reportado = None
 
-                # Validar contenido de respuesta antes de registrar éxito
                 texto_respuesta = getattr(respuesta, "text", None)
                 if not texto_respuesta or not str(texto_respuesta).strip():
                     bloqueo_mensaje = "La respuesta de Gemini fue bloqueada o vino vacía."
@@ -186,7 +173,7 @@ class AdaptadorGemini:
                     registrar_evento(
                         EventoTecnico(
                             operacion_id=op_id,
-                            tipo_operacion="analisis_exploracion_gemini",
+                            tipo_operacion=tipo_operacion,
                             fecha=datetime.now(timezone.utc),
                             duracion_ms=duracion_ms,
                             estado="ERROR",
@@ -207,14 +194,13 @@ class AdaptadorGemini:
                         operacion_id=op_id,
                     )
 
-                # Parsear y validar contra el esquema Pydantic
                 try:
-                    respuesta_ia = RespuestaExploracionIA.model_validate_json(texto_respuesta)
+                    respuesta_ia = esquema_respuesta.model_validate_json(texto_respuesta)
                 except Exception:
                     registrar_evento(
                         EventoTecnico(
                             operacion_id=op_id,
-                            tipo_operacion="analisis_exploracion_gemini",
+                            tipo_operacion=tipo_operacion,
                             fecha=datetime.now(timezone.utc),
                             duracion_ms=duracion_ms,
                             estado="ERROR",
@@ -234,11 +220,10 @@ class AdaptadorGemini:
                         operacion_id=op_id,
                     )
 
-                # Registrar telemetría exitosa con persistencia centralizada
                 registrar_evento(
                     EventoTecnico(
                         operacion_id=op_id,
-                        tipo_operacion="analisis_exploracion_gemini",
+                        tipo_operacion=tipo_operacion,
                         fecha=datetime.now(timezone.utc),
                         duracion_ms=duracion_ms,
                         estado="EXITO",
@@ -257,7 +242,6 @@ class AdaptadorGemini:
             except Exception as exc:
                 ultimo_error = exc
 
-                # Clasificar si el error es permanente (NO reintentar)
                 es_permanente = False
                 if errors and isinstance(exc, errors.APIError):
                     if exc.code in (400, 401, 402, 403, 404, 429):
@@ -272,18 +256,16 @@ class AdaptadorGemini:
 
         duracion_ms = int((time.perf_counter() - inicio) * 1000)
 
-        # Extraer código HTTP numérico de error si está disponible
         codigo_http_fallo = getattr(ultimo_error, "code", None)
         if not isinstance(codigo_http_fallo, int):
             resp_diag = getattr(ultimo_error, "response", None)
             if resp_diag and hasattr(resp_diag, "status_code") and isinstance(resp_diag.status_code, int):
                 codigo_http_fallo = resp_diag.status_code
 
-        # Registrar telemetría de fallo con persistencia centralizada
         registrar_evento(
             EventoTecnico(
                 operacion_id=op_id,
-                tipo_operacion="analisis_exploracion_gemini",
+                tipo_operacion=tipo_operacion,
                 fecha=datetime.now(timezone.utc),
                 duracion_ms=duracion_ms,
                 estado="ERROR",
@@ -298,6 +280,51 @@ class AdaptadorGemini:
         )
 
         return self._mapear_excepcion(ultimo_error, op_id)
+
+    def analizar_imagen_exploracion(
+        self,
+        imagen_bytes: bytes,
+        mime_type: str,
+        instrucciones: str,
+        operacion_id: Optional[UUID] = None,
+        usuario: Optional[ContextoUsuario] = None,
+        repositorio: Optional[Any] = None,
+    ) -> Resultado[RespuestaExploracionIA]:
+        """Envía una imagen a Gemini con instrucciones y esquema estructurado de exploración."""
+        return self._ejecutar_llamada_multimodal(
+            imagen_bytes=imagen_bytes,
+            mime_type=mime_type,
+            instrucciones=instrucciones,
+            prompt_usuario="Analyze this image and identify educational objects according to instructions.",
+            esquema_respuesta=RespuestaExploracionIA,
+            tipo_operacion="analisis_exploracion_gemini",
+            operacion_id=operacion_id,
+            usuario=usuario,
+            repositorio=repositorio,
+        )
+
+    def verificar_imagen_find_it(
+        self,
+        imagen_bytes: bytes,
+        mime_type: str,
+        instrucciones: str,
+        objeto_objetivo: str,
+        operacion_id: Optional[UUID] = None,
+        usuario: Optional[ContextoUsuario] = None,
+        repositorio: Optional[Any] = None,
+    ) -> Resultado[RespuestaFindItIA]:
+        """Envía una imagen a Gemini para verificar si contiene el objeto de un desafío Find It."""
+        return self._ejecutar_llamada_multimodal(
+            imagen_bytes=imagen_bytes,
+            mime_type=mime_type,
+            instrucciones=instrucciones,
+            prompt_usuario=f"Verify whether this image clearly shows the target object: {objeto_objetivo}.",
+            esquema_respuesta=RespuestaFindItIA,
+            tipo_operacion="verificacion_find_it_gemini",
+            operacion_id=operacion_id,
+            usuario=usuario,
+            repositorio=repositorio,
+        )
 
     def _mapear_excepcion(self, exc: Optional[Exception], operacion_id: UUID) -> Resultado[RespuestaExploracionIA]:
         """Traduce excepciones del proveedor a errores de dominio sanitizados."""
