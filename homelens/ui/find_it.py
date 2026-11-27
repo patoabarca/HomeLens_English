@@ -1,17 +1,23 @@
-"""Componente de interfaz para el juego interactivo Find It (Parte 12).
+"""Componente de interfaz para el juego interactivo Find It (Partes 10 y 12).
 
 Permite seleccionar un desafío de vocabulario, leer la consigna, subir o
-capturar una fotografía, verificarla con Gemini y volver a intentar.
-Deja el IntentoPractica resultante disponible en sesión para la Parte 10.
+capturar una fotografía, verificarla con Gemini, persistir el IntentoPractica
+resultante de forma idempotente (conservando INDETERMINABLE como estado propio
+y permitiendo reintentar el guardado sin volver a llamar a Gemini) y consultar
+los intentos anteriores para repasar.
 """
 
 from __future__ import annotations
-from typing import Callable, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Callable, Dict, List, Optional
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import streamlit as st
 
 from homelens.analisis import verificar_find_it
 from homelens.config import Configuracion
+from homelens.datos.repositorio import RepositorioHomeLens
+from homelens.datos.supabase import RepositorioSupabase
 from homelens.errores import Resultado
 from homelens.exploracion import dibujar_recuadros
 from homelens.imagenes import preparar_imagen
@@ -20,7 +26,10 @@ from homelens.modelos import (
     DesafioFindIt,
     EstadoFindIt,
     ImagenPreparada,
+    IntentoPractica,
     ObjetoEducativo,
+    ResultadoIntento,
+    TipoIntento,
     VerificacionFindIt,
 )
 from homelens.practicas import (
@@ -32,6 +41,60 @@ from homelens.ui.estado import (
     limpiar_resultado_find_it,
 )
 
+try:
+    _TZ_ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")
+except ZoneInfoNotFoundError:
+    _TZ_ARGENTINA = timezone(timedelta(hours=-3), name="ART")
+
+
+def _formatear_fecha_find_it(fecha: datetime) -> str:
+    """Formatea una fecha UTC en hora local de Argentina para repaso."""
+    fecha_utc = fecha if fecha.tzinfo is not None else fecha.replace(tzinfo=timezone.utc)
+    return fecha_utc.astimezone(_TZ_ARGENTINA).strftime("%d/%m/%Y — %H:%M ART")
+
+
+def _obtener_repositorio_find_it(
+    config: Configuracion,
+    repositorio: Optional[RepositorioHomeLens] = None,
+) -> RepositorioHomeLens:
+    """Construye o reutiliza el repositorio de persistencia respetando aislamiento de sesión."""
+    if repositorio is not None:
+        return repositorio
+    return RepositorioSupabase(
+        supabase_url=config.supabase_url if config.tiene_supabase else None,
+        anon_key=config.supabase_anon_key if config.tiene_supabase else None,
+        almacen_demo=st.session_state.get("_exploraciones_demo"),
+        almacen_intentos_demo=st.session_state.get("_intentos_demo"),
+    )
+
+
+def guardar_intento_actual_find_it(
+    usuario: ContextoUsuario,
+    repositorio: RepositorioHomeLens,
+) -> bool:
+    """Guarda de forma idempotente el intento activo de Find It conservando el mismo intento_id.
+
+    Si el guardado falla, mantiene visible la verificación y el mismo `find_it_ultimo_intento`
+    para poder reintentar el guardado sin volver a llamar a Gemini.
+    """
+    intento: Optional[IntentoPractica] = st.session_state.get("find_it_ultimo_intento")
+    if intento is None:
+        return False
+
+    res_guardado = repositorio.guardar_intento(usuario, intento)
+    if res_guardado.ok:
+        st.session_state.find_it_intento_guardado = True
+        st.session_state.find_it_error_guardado = None
+        return True
+
+    st.session_state.find_it_intento_guardado = False
+    st.session_state.find_it_error_guardado = (
+        res_guardado.error.mensaje_usuario
+        if res_guardado.error
+        else "No fue posible guardar el intento de Find It."
+    )
+    return False
+
 
 def _reiniciar_intento_find_it() -> None:
     """Limpia la fotografía y el resultado actual conservando el desafío elegido."""
@@ -42,13 +105,81 @@ def _reiniciar_intento_find_it() -> None:
     st.session_state.find_it_camera_version = st.session_state.get("find_it_camera_version", 0) + 1
 
 
+def _renderizar_repaso_intentos_find_it(
+    usuario: ContextoUsuario,
+    desafios_disponibles: List[DesafioFindIt],
+    repositorio: RepositorioHomeLens,
+) -> None:
+    """Consulta y presenta los resultados anteriores de Find It del usuario para repasar."""
+    st.divider()
+    st.subheader("📚 Repaso de Intentos Anteriores (Find It)")
+    st.caption("Consulta tus búsquedas previas ordenadas de la más reciente a la más antigua.")
+
+    res_intentos = repositorio.listar_intentos(usuario)
+    if not res_intentos.ok:
+        st.warning(
+            f"⚠️ {res_intentos.error.mensaje_usuario if res_intentos.error else 'No se pudieron recuperar tus intentos anteriores.'}"
+        )
+        return
+
+    todos_intentos = res_intentos.valor or []
+    intentos_find_it = [it for it in todos_intentos if it.tipo == TipoIntento.FIND_IT]
+
+    if not intentos_find_it:
+        st.info("ℹ️ Aún no tienes intentos de Find It guardados para repasar.")
+        return
+
+    mapa_desafios: Dict[UUID, str] = {}
+    mapa_objetos: Dict[UUID, str] = {}
+    for d in desafios_disponibles:
+        etiqueta = f"{d.nombre_en} ({d.nombre_es})"
+        mapa_desafios[d.desafio_id] = etiqueta
+        mapa_objetos[d.objeto_origen_id] = etiqueta
+
+    res_vocab = repositorio.listar_vocabulario(usuario)
+    if res_vocab.ok and res_vocab.valor:
+        for obj in res_vocab.valor:
+            if obj.objeto_id not in mapa_objetos:
+                mapa_objetos[obj.objeto_id] = f"{obj.nombre_en} ({obj.nombre_es})"
+
+    with st.expander(
+        f"📖 Ver historial de intentos de Find It ({len(intentos_find_it)})",
+        expanded=True,
+    ):
+        for it in intentos_find_it:
+            if it.resultado == ResultadoIntento.CORRECTO:
+                icono = "🎉"
+                etiqueta_res = "Encontrado"
+            elif it.resultado == ResultadoIntento.INCORRECTO:
+                icono = "🔎"
+                etiqueta_res = "No encontrado"
+            else:
+                icono = "📷"
+                etiqueta_res = "Indeterminable"
+
+            fecha_str = _formatear_fecha_find_it(it.fecha)
+            nombre_obj = None
+            if it.desafio_id and it.desafio_id in mapa_desafios:
+                nombre_obj = mapa_desafios[it.desafio_id]
+            elif it.objeto_ids:
+                for oid in it.objeto_ids:
+                    if oid in mapa_objetos:
+                        nombre_obj = mapa_objetos[oid]
+                        break
+
+            titulo_desafio = nombre_obj or "Desafío Find It"
+            with st.container(border=True):
+                st.markdown(f"{icono} **{etiqueta_res}** — *{titulo_desafio}* · 📅 `{fecha_str}`")
+
+
 def renderizar_pantalla_find_it(
     config: Configuracion,
     verificar_fn: Optional[
         Callable[[ContextoUsuario, ImagenPreparada, DesafioFindIt, UUID], Resultado[VerificacionFindIt]]
     ] = None,
+    repositorio: Optional[RepositorioHomeLens] = None,
 ) -> None:
-    """Renderiza la pantalla de Desafíos Find It conectada a verificar_find_it."""
+    """Renderiza la pantalla de Desafíos Find It conectada a verificar_find_it y persistencia."""
     inicializar_estado_sesion()
 
     st.header("🎯 Desafíos Find It")
@@ -58,6 +189,8 @@ def renderizar_pantalla_find_it(
     if usuario is None:
         st.warning("🔒 Inicia sesión para participar en los desafíos Find It.")
         return
+
+    repo = _obtener_repositorio_find_it(config=config, repositorio=repositorio)
 
     desafios = obtener_desafios_find_it_disponibles(
         usuario=usuario,
@@ -175,26 +308,44 @@ def renderizar_pantalla_find_it(
             use_container_width=True,
             key="btn_verificar_find_it",
         ):
-            with st.spinner("Verificando fotografía con Gemini..."):
-                res_verif = verificador(usuario, imagen_prep, desafio_seleccionado, uuid4())
+            verificacion_existente: Optional[VerificacionFindIt] = st.session_state.get("find_it_verificacion")
+            intento_existente: Optional[IntentoPractica] = st.session_state.get("find_it_ultimo_intento")
+            desafio_existente: Optional[DesafioFindIt] = st.session_state.get("find_it_ultimo_desafio")
 
-            if res_verif.ok and res_verif.valor is not None:
-                st.session_state.find_it_verificacion = res_verif.valor
-                st.session_state.find_it_ultimo_desafio = desafio_seleccionado
-                st.session_state.find_it_ultimo_intento = construir_intento_find_it(
-                    usuario=usuario,
-                    desafio=desafio_seleccionado,
-                    verificacion=res_verif.valor,
-                )
-                st.session_state.find_it_error = None
+            # Protección contra doble clic: si ya se verificó esta foto para este desafío,
+            # reutilizar el mismo intento_id sin volver a llamar a Gemini.
+            if (
+                verificacion_existente is not None
+                and intento_existente is not None
+                and desafio_existente is not None
+                and desafio_existente.desafio_id == desafio_seleccionado.desafio_id
+            ):
+                guardar_intento_actual_find_it(usuario, repo)
             else:
-                st.session_state.find_it_verificacion = None
-                st.session_state.find_it_ultimo_intento = None
-                st.session_state.find_it_error = (
-                    res_verif.error.mensaje_usuario
-                    if res_verif.error
-                    else "No se pudo completar la verificación con Gemini."
-                )
+                with st.spinner("Verificando fotografía con Gemini..."):
+                    res_verif = verificador(usuario, imagen_prep, desafio_seleccionado, uuid4())
+
+                if res_verif.ok and res_verif.valor is not None:
+                    st.session_state.find_it_verificacion = res_verif.valor
+                    st.session_state.find_it_ultimo_desafio = desafio_seleccionado
+                    st.session_state.find_it_ultimo_intento = construir_intento_find_it(
+                        usuario=usuario,
+                        desafio=desafio_seleccionado,
+                        verificacion=res_verif.valor,
+                    )
+                    st.session_state.find_it_error = None
+                    # Guardar inmediatamente al recibir el resultado porque la sesión conserva solo el último
+                    guardar_intento_actual_find_it(usuario, repo)
+                else:
+                    st.session_state.find_it_verificacion = None
+                    st.session_state.find_it_ultimo_intento = None
+                    st.session_state.find_it_intento_guardado = False
+                    st.session_state.find_it_error_guardado = None
+                    st.session_state.find_it_error = (
+                        res_verif.error.mensaje_usuario
+                        if res_verif.error
+                        else "No se pudo completar la verificación con Gemini."
+                    )
 
         # Renderizar la foto (con recuadro si fue encontrado) después de procesar el botón
         verificacion_actual: Optional[VerificacionFindIt] = st.session_state.get("find_it_verificacion")
@@ -221,9 +372,10 @@ def renderizar_pantalla_find_it(
             width="content",
         )
 
-    # 5. Presentación del resultado de los 3 estados y botón Volver a intentar
+    # 5. Presentación del resultado de los 3 estados, estado de guardado y botón Volver a intentar
     verificacion_actual = st.session_state.get("find_it_verificacion")
     error_actual = st.session_state.get("find_it_error")
+    error_guardado = st.session_state.get("find_it_error_guardado")
 
     if error_actual:
         st.error(f"❌ {error_actual}")
@@ -235,6 +387,20 @@ def renderizar_pantalla_find_it(
             st.warning(f"🔎 **No encontrado:** {verificacion_actual.mensaje}")
         else:
             st.info(f"📷 **No se pudo determinar:** {verificacion_actual.mensaje}")
+
+        if error_guardado:
+            st.error(f"❌ No se pudo guardar este intento: {error_guardado}")
+            if st.button(
+                "💾 Reintentar guardado del intento",
+                type="primary",
+                use_container_width=True,
+                key="btn_reintentar_guardado_find_it",
+            ):
+                if guardar_intento_actual_find_it(usuario, repo):
+                    st.toast("✅ Intento de Find It guardado correctamente.")
+                st.rerun()
+        elif st.session_state.get("find_it_intento_guardado", False):
+            st.caption("💾 Intento guardado en tu historial de práctica.")
 
     if (
         verificacion_actual is not None
@@ -248,3 +414,10 @@ def renderizar_pantalla_find_it(
         ):
             _reiniciar_intento_find_it()
             st.rerun()
+
+    # 6. Repaso de resultados anteriores de Find It
+    _renderizar_repaso_intentos_find_it(
+        usuario=usuario,
+        desafios_disponibles=desafios,
+        repositorio=repo,
+    )

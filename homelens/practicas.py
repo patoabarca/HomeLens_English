@@ -185,6 +185,26 @@ def obtener_desafios_find_it_disponibles(
     return desafios
 
 
+def construir_intento_cuestionario(
+    usuario: ContextoUsuario,
+    actividad: Actividad,
+    opcion_elegida_id: str,
+    resultado_practica: ResultadoPractica,
+    fecha: Optional[datetime] = None,
+) -> IntentoPractica:
+    """Construye un IntentoPractica inmutable para una respuesta de cuestionario (Parte 10)."""
+    return IntentoPractica(
+        intento_id=resultado_practica.intento_id,
+        user_id=usuario.user_id,
+        tipo=TipoIntento.CUESTIONARIO,
+        fecha=fecha or datetime.now(timezone.utc),
+        actividad_id=actividad.actividad_id,
+        opcion_elegida_id=opcion_elegida_id.strip() if opcion_elegida_id else None,
+        resultado=resultado_practica.resultado,
+        objeto_ids=list(actividad.objeto_ids),
+    )
+
+
 def construir_intento_find_it(
     usuario: ContextoUsuario,
     desafio: DesafioFindIt,

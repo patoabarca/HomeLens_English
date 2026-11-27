@@ -54,13 +54,15 @@ def inicializar_estado_sesion() -> None:
         st.session_state.exploraciones_guardadas_ids = set()
     if "_exploraciones_demo" not in st.session_state:
         st.session_state._exploraciones_demo = {}
+    if "_intentos_demo" not in st.session_state:
+        st.session_state._intentos_demo = {}
     if "mensaje_historial" not in st.session_state:
         st.session_state.mensaje_historial = None
     if "error_historial" not in st.session_state:
         st.session_state.error_historial = None
     if "exploracion_en_vista_historial" not in st.session_state:
         st.session_state.exploracion_en_vista_historial = None
-    # Estado de cuestionarios pedagógicos (M6 - Tarea 9)
+    # Estado de cuestionarios pedagógicos (M6 - Tarea 9 y Parte 10)
     if "cuestionario_indice_actual" not in st.session_state:
         st.session_state.cuestionario_indice_actual = 0
     if "cuestionario_respuestas" not in st.session_state:
@@ -75,7 +77,15 @@ def inicializar_estado_sesion() -> None:
         st.session_state.cuestionario_exploracion_id = None
     if "cuestionario_finalizado" not in st.session_state:
         st.session_state.cuestionario_finalizado = False
-    # Estado de desafíos Find It (M6 - Partes 11 y 12)
+    if "cuestionario_intentos" not in st.session_state:
+        st.session_state.cuestionario_intentos = {}
+    if "cuestionario_intentos_guardados_ids" not in st.session_state:
+        st.session_state.cuestionario_intentos_guardados_ids = set()
+    if "cuestionario_guardado_intentado" not in st.session_state:
+        st.session_state.cuestionario_guardado_intentado = False
+    if "cuestionario_error_guardado" not in st.session_state:
+        st.session_state.cuestionario_error_guardado = None
+    # Estado de desafíos Find It (M6 - Partes 10, 11 y 12)
     if "find_it_desafio_id" not in st.session_state:
         st.session_state.find_it_desafio_id = None
     if "find_it_imagen_bytes" not in st.session_state:
@@ -90,6 +100,10 @@ def inicializar_estado_sesion() -> None:
         st.session_state.find_it_ultimo_desafio = None
     if "find_it_error" not in st.session_state:
         st.session_state.find_it_error = None
+    if "find_it_intento_guardado" not in st.session_state:
+        st.session_state.find_it_intento_guardado = False
+    if "find_it_error_guardado" not in st.session_state:
+        st.session_state.find_it_error_guardado = None
     if "find_it_origen_imagen" not in st.session_state:
         st.session_state.find_it_origen_imagen = "archivo"
     if "find_it_uploader_version" not in st.session_state:
@@ -104,6 +118,8 @@ def limpiar_resultado_find_it() -> None:
     st.session_state.find_it_ultimo_intento = None
     st.session_state.find_it_ultimo_desafio = None
     st.session_state.find_it_error = None
+    st.session_state.find_it_intento_guardado = False
+    st.session_state.find_it_error_guardado = None
 
 
 def limpiar_datos_find_it() -> None:
@@ -127,6 +143,10 @@ def limpiar_datos_cuestionario() -> None:
     st.session_state.cuestionario_confirmado = False
     st.session_state.cuestionario_exploracion_id = None
     st.session_state.cuestionario_finalizado = False
+    st.session_state.cuestionario_intentos = {}
+    st.session_state.cuestionario_intentos_guardados_ids = set()
+    st.session_state.cuestionario_guardado_intentado = False
+    st.session_state.cuestionario_error_guardado = None
 
     # Eliminar claves dinámicas de selección de widgets para forzar deselección limpia
     for k in list(st.session_state.keys()):
@@ -222,6 +242,7 @@ def cerrar_sesion_usuario(config: Optional[Any] = None) -> None:
     st.session_state.mensaje_auth = "Has cerrado sesión correctamente. Tus datos temporales fueron descartados."
     st.session_state.seccion_navegacion = "Inicio / Estado"
     st.session_state._exploraciones_demo = {}
+    st.session_state._intentos_demo = {}
     st.session_state.exploraciones_guardadas_ids = set()
     st.session_state.exploracion_en_vista_historial = None
     st.session_state.mensaje_historial = None

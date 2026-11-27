@@ -30,6 +30,8 @@ from homelens.modelos import (
     EstadoAnalisis,
     DesafioFindIt,
     IntentoPractica,
+    TipoIntento,
+    ResultadoIntento,
     Confirmacion,
     RegistroConsumoIA,
     FiltroConsumoIA,
@@ -46,6 +48,7 @@ class RepositorioSupabase(RepositorioHomeLens):
         anon_key: Optional[str] = None,
         cliente_supabase: Optional[Any] = None,
         almacen_demo: Optional[Dict[UUID, Exploracion]] = None,
+        almacen_intentos_demo: Optional[Dict[UUID, IntentoPractica]] = None,
     ) -> None:
         """Inicializa el repositorio.
 
@@ -53,12 +56,16 @@ class RepositorioSupabase(RepositorioHomeLens):
             supabase_url: URL pública del proyecto Supabase.
             anon_key: Clave anónima pública (anon key) del proyecto.
             cliente_supabase: Cliente inyectado opcional (usado para pruebas y mocks).
-            almacen_demo: Diccionario opcional aislado por sesión de navegador para modo demo.
+            almacen_demo: Diccionario opcional aislado por sesión de navegador para exploraciones en modo demo.
+            almacen_intentos_demo: Diccionario opcional aislado por sesión de navegador para intentos en modo demo.
         """
         self.supabase_url = (supabase_url or "").strip()
         self.anon_key = (anon_key or "").strip()
         self._cliente_inyectado = cliente_supabase
         self._almacen_demo = almacen_demo if almacen_demo is not None else {}
+        self._almacen_intentos_demo = (
+            almacen_intentos_demo if almacen_intentos_demo is not None else {}
+        )
 
     @staticmethod
     def _validar_contexto_usuario(
@@ -577,6 +584,76 @@ class RepositorioSupabase(RepositorioHomeLens):
     # Métodos reservados para etapas posteriores (Tareas 10 y 12)
     # =====================================================================
 
+    @staticmethod
+    def _serializar_intento(intento: IntentoPractica) -> Dict[str, Any]:
+        """Convierte un IntentoPractica a estructura serializable para la tabla intentos_practica."""
+        fecha_utc = (
+            intento.fecha
+            if intento.fecha.tzinfo is not None
+            else intento.fecha.replace(tzinfo=timezone.utc)
+        )
+        return {
+            "id": str(intento.intento_id),
+            "user_id": str(intento.user_id),
+            "tipo": intento.tipo.value if hasattr(intento.tipo, "value") else str(intento.tipo),
+            "fecha": fecha_utc.isoformat(),
+            "actividad_id": str(intento.actividad_id) if intento.actividad_id is not None else None,
+            "desafio_id": str(intento.desafio_id) if intento.desafio_id is not None else None,
+            "opcion_elegida_id": intento.opcion_elegida_id,
+            "resultado": (
+                intento.resultado.value
+                if hasattr(intento.resultado, "value")
+                else str(intento.resultado)
+            ),
+            "objeto_ids": [str(oid) for oid in (intento.objeto_ids or [])],
+        }
+
+    @staticmethod
+    def _deserializar_intento(row: Dict[str, Any]) -> IntentoPractica:
+        """Reconstruye un IntentoPractica de dominio a partir de un registro de BD."""
+        intento_id = UUID(str(row["id"]))
+        user_id = UUID(str(row["user_id"]))
+        tipo = TipoIntento(str(row["tipo"]))
+        raw_fecha = row["fecha"]
+        fecha = (
+            datetime.fromisoformat(raw_fecha)
+            if isinstance(raw_fecha, str)
+            else raw_fecha
+        )
+        if fecha.tzinfo is None:
+            fecha = fecha.replace(tzinfo=timezone.utc)
+
+        actividad_id = (
+            UUID(str(row["actividad_id"]))
+            if row.get("actividad_id") is not None
+            else None
+        )
+        desafio_id = (
+            UUID(str(row["desafio_id"]))
+            if row.get("desafio_id") is not None
+            else None
+        )
+        opcion_elegida_id = (
+            str(row["opcion_elegida_id"])
+            if row.get("opcion_elegida_id") is not None
+            else None
+        )
+        resultado = ResultadoIntento(str(row["resultado"]))
+        raw_objetos = row.get("objeto_ids") or []
+        objeto_ids = [UUID(str(oid)) for oid in raw_objetos if oid]
+
+        return IntentoPractica(
+            intento_id=intento_id,
+            user_id=user_id,
+            tipo=tipo,
+            fecha=fecha,
+            actividad_id=actividad_id,
+            desafio_id=desafio_id,
+            opcion_elegida_id=opcion_elegida_id,
+            resultado=resultado,
+            objeto_ids=objeto_ids,
+        )
+
     def guardar_desafio(
         self, usuario: ContextoUsuario, desafio: DesafioFindIt
     ) -> Resultado[UUID]:
@@ -596,18 +673,231 @@ class RepositorioSupabase(RepositorioHomeLens):
     def guardar_intento(
         self, usuario: ContextoUsuario, intento: IntentoPractica
     ) -> Resultado[Confirmacion]:
-        return Resultado.fallo(
-            codigo=CODIGO_PERSISTENCIA_FALLIDA,
-            mensaje_usuario="El guardado de intentos de cuestionario corresponde a la Tarea 10.",
+        """Registra de forma idempotente un intento de práctica (Cuestionario o Find It).
+
+        Garantiza que:
+        - Cada usuario autenticado solo pueda registrar intentos con su propio user_id.
+        - Un doble clic o un reintento con el mismo intento_id no duplique el registro
+          y devuelva confirmación exitosa.
+        - Se conserve fielmente ResultadoIntento.INDETERMINABLE como estado propio.
+        """
+        err_usuario = self._validar_contexto_usuario(
+            usuario, "Se requiere una sesión de usuario válida para guardar intentos de práctica."
         )
+        if err_usuario is not None:
+            return err_usuario
+
+        if (
+            intento is None
+            or not isinstance(intento, IntentoPractica)
+            or not isinstance(intento.intento_id, UUID)
+        ):
+            return Resultado.fallo(
+                codigo=CODIGO_PERSISTENCIA_FALLIDA,
+                mensaje_usuario="Los datos del intento de práctica son inválidos o están incompletos.",
+                reintentable=False,
+            )
+
+        if intento.user_id != usuario.user_id:
+            return Resultado.fallo(
+                codigo=CODIGO_ACCESO_DENEGADO,
+                mensaje_usuario="No tienes autorización para guardar intentos asignados a otro usuario.",
+                reintentable=False,
+            )
+
+        if not isinstance(intento.tipo, TipoIntento):
+            return Resultado.fallo(
+                codigo=CODIGO_PERSISTENCIA_FALLIDA,
+                mensaje_usuario="El tipo de intento de práctica no es válido.",
+                reintentable=False,
+            )
+
+        if not isinstance(intento.resultado, ResultadoIntento):
+            return Resultado.fallo(
+                codigo=CODIGO_PERSISTENCIA_FALLIDA,
+                mensaje_usuario="El resultado del intento de práctica no es válido.",
+                reintentable=False,
+            )
+
+        if intento.tipo == TipoIntento.CUESTIONARIO and intento.actividad_id is None:
+            return Resultado.fallo(
+                codigo=CODIGO_PERSISTENCIA_FALLIDA,
+                mensaje_usuario="Un intento de cuestionario requiere un identificador de actividad.",
+                reintentable=False,
+            )
+
+        if intento.tipo == TipoIntento.FIND_IT and intento.desafio_id is None:
+            return Resultado.fallo(
+                codigo=CODIGO_PERSISTENCIA_FALLIDA,
+                mensaje_usuario="Un intento de Find It requiere un identificador de desafío.",
+                reintentable=False,
+            )
+
+        # Modo Demostración Local: persistencia idempotente en memoria aislada por sesión
+        if usuario.es_demo:
+            existente = self._almacen_intentos_demo.get(intento.intento_id)
+            if existente is not None:
+                if existente.user_id != usuario.user_id:
+                    return Resultado.fallo(
+                        codigo=CODIGO_ACCESO_DENEGADO,
+                        mensaje_usuario="El identificador del intento pertenece a otro usuario.",
+                        reintentable=False,
+                    )
+                return Resultado.exito(
+                    Confirmacion(
+                        operacion_id=intento.intento_id,
+                        mensaje="Intento de práctica ya registrado previamente en la sesión demo.",
+                    )
+                )
+            self._almacen_intentos_demo[intento.intento_id] = intento
+            return Resultado.exito(
+                Confirmacion(
+                    operacion_id=intento.intento_id,
+                    mensaje="Intento de práctica registrado en la sesión demo.",
+                )
+            )
+
+        # Modo Supabase Autenticado
+        cliente = self._obtener_cliente_para_usuario(usuario)
+        if cliente is None:
+            return Resultado.fallo(
+                codigo=CODIGO_CONFIGURACION_INVALIDA,
+                mensaje_usuario="El servicio de almacenamiento no está configurado (faltan credenciales de Supabase).",
+                reintentable=False,
+            )
+
+        try:
+            # 1. Comprobación idempotente previa por intento_id
+            query_check = (
+                cliente.table("intentos_practica")
+                .select("id, user_id")
+                .eq("id", str(intento.intento_id))
+                .execute()
+            )
+            registros_previos = getattr(query_check, "data", []) or []
+            if registros_previos:
+                fila_previa = registros_previos[0]
+                if str(fila_previa.get("user_id")) != str(usuario.user_id):
+                    return Resultado.fallo(
+                        codigo=CODIGO_ACCESO_DENEGADO,
+                        mensaje_usuario="No tienes autorización sobre este intento de práctica.",
+                        reintentable=False,
+                    )
+                return Resultado.exito(
+                    Confirmacion(
+                        operacion_id=intento.intento_id,
+                        mensaje="Intento de práctica ya registrado previamente.",
+                    )
+                )
+
+            # 2. Inserción en la tabla 'intentos_practica'
+            fila = self._serializar_intento(intento)
+            res_insert = cliente.table("intentos_practica").insert(fila).execute()
+            data_insert = getattr(res_insert, "data", None)
+
+            if (
+                not data_insert
+                and not getattr(res_insert, "count", None)
+                and not isinstance(data_insert, list)
+            ):
+                return Resultado.fallo(
+                    codigo=CODIGO_PERSISTENCIA_FALLIDA,
+                    mensaje_usuario="El servidor de base de datos no confirmó el guardado del intento.",
+                    reintentable=True,
+                )
+
+            return Resultado.exito(
+                Confirmacion(
+                    operacion_id=intento.intento_id,
+                    mensaje="Intento de práctica guardado exitosamente.",
+                )
+            )
+
+        except Exception as e:
+            msg_err = str(e).lower()
+            # Idempotencia ante condición de carrera / doble clic concurrente (PostgreSQL 23505)
+            if "duplicate" in msg_err or "23505" in msg_err or "already exists" in msg_err:
+                return Resultado.exito(
+                    Confirmacion(
+                        operacion_id=intento.intento_id,
+                        mensaje="Intento de práctica ya registrado previamente.",
+                    )
+                )
+
+            return self._traducir_error_bd(
+                e,
+                "No fue posible guardar el intento de práctica en la base de datos. Puedes reintentar.",
+            )
 
     def listar_intentos(
         self, usuario: ContextoUsuario, desde: Optional[datetime] = None
     ) -> Resultado[List[IntentoPractica]]:
-        return Resultado.fallo(
-            codigo=CODIGO_PERSISTENCIA_FALLIDA,
-            mensaje_usuario="El listado de intentos de práctica corresponde a la Tarea 10.",
+        """Lista los intentos de práctica realizados por el usuario, ordenados del más reciente al más antiguo."""
+        err_usuario = self._validar_contexto_usuario(
+            usuario, "Se requiere una sesión válida para consultar los intentos de práctica."
         )
+        if err_usuario is not None:
+            return err_usuario
+
+        desde_utc: Optional[datetime] = None
+        if desde is not None:
+            desde_utc = desde if desde.tzinfo is not None else desde.replace(tzinfo=timezone.utc)
+
+        # Modo Demostración Local
+        if usuario.es_demo:
+            intentos_demo: List[IntentoPractica] = []
+            for it in self._almacen_intentos_demo.values():
+                if it.user_id != usuario.user_id:
+                    continue
+                fecha_it = it.fecha if it.fecha.tzinfo is not None else it.fecha.replace(tzinfo=timezone.utc)
+                if desde_utc is not None and fecha_it < desde_utc:
+                    continue
+                intentos_demo.append(it)
+            intentos_demo.sort(
+                key=lambda x: x.fecha if x.fecha.tzinfo is not None else x.fecha.replace(tzinfo=timezone.utc),
+                reverse=True,
+            )
+            return Resultado.exito(intentos_demo)
+
+        # Modo Supabase Autenticado
+        cliente = self._obtener_cliente_para_usuario(usuario)
+        if cliente is None:
+            return Resultado.fallo(
+                codigo=CODIGO_CONFIGURACION_INVALIDA,
+                mensaje_usuario="El servicio de almacenamiento no está configurado.",
+                reintentable=False,
+            )
+
+        try:
+            query = (
+                cliente.table("intentos_practica")
+                .select("*")
+                .eq("user_id", str(usuario.user_id))
+            )
+            if desde_utc is not None and hasattr(query, "gte"):
+                query = query.gte("fecha", desde_utc.isoformat())
+
+            res = query.order("fecha", desc=True).execute()
+            data = getattr(res, "data", []) or []
+
+            intentos: List[IntentoPractica] = []
+            for fila in data:
+                # Doble comprobación defensiva en Python además de RLS
+                if str(fila.get("user_id")) != str(usuario.user_id):
+                    continue
+                intento = self._deserializar_intento(fila)
+                if desde_utc is not None and intento.fecha < desde_utc:
+                    continue
+                intentos.append(intento)
+
+            intentos.sort(key=lambda x: x.fecha, reverse=True)
+            return Resultado.exito(intentos)
+
+        except Exception as e:
+            return self._traducir_error_bd(
+                e,
+                "Error al obtener los intentos de práctica desde la base de datos.",
+            )
 
     # =====================================================================
     # Panel de Consumo de IA (Gemini) — Métricas y Costos Centralizados
