@@ -57,6 +57,6 @@ class RespuestaExploracionIA(BaseModel):
 
 class RespuestaFindItIA(BaseModel):
     """Estructura de verificación para el desafío Find It."""
-    estado: str
+    estado: Literal["ENCONTRADO", "NO_ENCONTRADO", "INDETERMINABLE"]
     mensaje: str
-    recuadro_encontrado: Optional[RecuadroIA]
+    recuadro_encontrado: Optional[RecuadroIA] = None

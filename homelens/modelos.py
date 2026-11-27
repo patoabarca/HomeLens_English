@@ -210,6 +210,7 @@ class VerificacionFindIt:
     """Resultado técnico del análisis de un desafío Find It."""
     estado: EstadoFindIt
     mensaje: str
+    recuadro_encontrado: Optional[RecuadroNormalizado] = None
 
 
 @dataclass(frozen=True)
