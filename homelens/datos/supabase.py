@@ -508,7 +508,12 @@ class RepositorioSupabase(RepositorioHomeLens):
     def listar_vocabulario(
         self, usuario: ContextoUsuario
     ) -> Resultado[List[ObjetoEducativo]]:
-        """Lista el vocabulario previamente explorado y guardado por el usuario."""
+        """Lista todos los objetos educativos explorados y guardados por el usuario.
+
+        Conserva cada instancia (con su respectivo objeto_id) de palabras que aparecen en
+        varias exploraciones para que el cálculo de progreso (M8) pueda vincular intentos
+        asociados a cualquiera de las exploraciones y luego agrupar por palabra normalizada.
+        """
         err_usuario = self._validar_contexto_usuario(
             usuario, "Se requiere una sesión válida para consultar el vocabulario."
         )
@@ -518,13 +523,14 @@ class RepositorioSupabase(RepositorioHomeLens):
         # Modo Demostración Local
         if usuario.es_demo:
             vocabulario_demo: List[ObjetoEducativo] = []
-            vistos = set()
-            for exp in self._almacen_demo.values():
+            vistos_ids = set()
+            for exp in sorted(
+                self._almacen_demo.values(), key=lambda e: e.creada_en, reverse=True
+            ):
                 if exp.user_id == usuario.user_id:
                     for obj in exp.objetos:
-                        clave = obj.nombre_en.strip().lower()
-                        if clave not in vistos:
-                            vistos.add(clave)
+                        if obj.objeto_id not in vistos_ids:
+                            vistos_ids.add(obj.objeto_id)
                             vocabulario_demo.append(obj)
             return Resultado.exito(vocabulario_demo)
 
@@ -546,18 +552,22 @@ class RepositorioSupabase(RepositorioHomeLens):
             )
             data = getattr(res, "data", []) or []
             vocabulario: List[ObjetoEducativo] = []
-            vistos_en = set()
+            vistos_obj_ids = set()
 
             for fila in data:
                 raw_objs = fila.get("objetos") or []
                 for o in raw_objs:
-                    nom = str(o.get("nombre_en", "")).strip().lower()
-                    if nom and nom not in vistos_en:
-                        vistos_en.add(nom)
+                    nom = str(o.get("nombre_en", "")).strip()
+                    raw_oid = o.get("objeto_id")
+                    if not nom or not raw_oid:
+                        continue
+                    oid = UUID(str(raw_oid))
+                    if oid not in vistos_obj_ids:
+                        vistos_obj_ids.add(oid)
                         rec = o["recuadro"]
                         vocabulario.append(
                             ObjetoEducativo(
-                                objeto_id=UUID(str(o["objeto_id"])),
+                                objeto_id=oid,
                                 exploracion_id=UUID(str(o["exploracion_id"])),
                                 nombre_en=str(o["nombre_en"]),
                                 nombre_es=str(o["nombre_es"]),
