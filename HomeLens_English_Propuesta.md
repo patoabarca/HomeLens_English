@@ -190,7 +190,7 @@ La organización técnica propuesta contempla los siguientes módulos:
 
 Python y Streamlit se mantienen como base propuesta del prototipo. Se propone Supabase Auth con ingreso mediante Google y PostgreSQL en Supabase para la persistencia. La integración completa, su comportamiento en móviles y el alojamiento deberán validarse antes de confirmar la arquitectura.
 
-No será necesario entrenar un modelo propio para esta arquitectura. Su adecuación académica dependerá de la consigna: el aporte del equipo estará en diseñar, integrar, controlar y evaluar el sistema.
+No será necesario entrenar un modelo propio para esta arquitectura. El equipo utiliza **Gemini como modelo multimodal preentrenado**, sin entrenar una red neuronal desde cero ni ajustar sus pesos (*fine-tuning*). Las fotografías etiquetadas manualmente con recuadros en **CVAT** se emplean exclusivamente como conjunto de referencia (*ground truth*) para evaluar la calidad de las detecciones, la localización y el contenido educativo generado por el sistema. Su adecuación académica dependerá de la consigna: el aporte del equipo estará en diseñar, integrar, controlar y evaluar el sistema.
 
 ## 1.10 Datos privacidad y consumo
 
