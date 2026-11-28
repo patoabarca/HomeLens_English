@@ -38,13 +38,17 @@ RecuadroPantalla: izquierda: float; arriba: float; ancho: float; alto: float. Se
 
 ### 2.3 Exploraciones y objetos
 
-EstadoAnalisis: UTILIZABLE, SIN_OBJETOS_CLAROS o REPETIR_CAPTURA. Las respuestas con lista vacía pueden ser válidas; deben distinguirse de un JSON inválido o un error del proveedor.
+EstadoAnalisis: `UTILIZABLE`, `SIN_OBJETOS_CLAROS`, `REPETIR_CAPTURA` o `FUERA_DE_ALCANCE` (definido en `homelens/modelos.py`). Las respuestas sin objetos (`SIN_OBJETOS_CLAROS`, `REPETIR_CAPTURA` o `FUERA_DE_ALCANCE` cuando la imagen no corresponde a un interior doméstico) son estados válidos del dominio; deben distinguirse de un JSON inválido o un error del proveedor.
 
-ObjetoEducativo: objeto_id: UUID; exploracion_id: UUID; nombre_en: str; nombre_es: str; recuadro: RecuadroNormalizado; frase_en: str; frase_es: str. Una exploración tendrá entre cero y cinco objetos. No se agregan objetos para completar un cupo.
+ObjetoEducativo: `objeto_id: UUID`; `exploracion_id: UUID`; `nombre_en: str`; `nombre_es: str`; `recuadro: RecuadroNormalizado`; `frase_en: str`; `frase_es: str`. Una exploración utilizable tiene entre uno y cinco objetos. No se agregan objetos para completar un cupo.
 
-Exploracion: exploracion_id: UUID; user_id: UUID; creada_en: datetime; estado: EstadoAnalisis; objetos: list[ObjetoEducativo]; actividades: list[Actividad]; schema_version: int. Solo se guardan exploraciones educativas válidas y utilizables. Los estados sin contenido se muestran y se contabilizan en las métricas técnicas, sin inventar vocabulario ni generar historial vacío de aprendizaje.
+Exploracion: `exploracion_id: UUID`; `user_id: UUID`; `creada_en: datetime`; `estado: EstadoAnalisis`; `objetos: list[ObjetoEducativo]`; `actividades: list[Actividad]`; `schema_version: int`. Solo se guardan exploraciones educativas con estado `UTILIZABLE`. Los estados sin contenido se muestran y se contabilizan en las métricas técnicas, sin inventar vocabulario ni generar historial vacío de aprendizaje.
 
-La respuesta de Gemini tendrá un modelo separado llamado RespuestaExploracionIA, con identificadores locales para relacionar objetos y preguntas. Tras validarla, M3 los convierte a UUID y completa las referencias internas. El proveedor no asigna user_id, fechas de registro ni identificadores de persistencia.
+**Dónde se define el esquema JSON solicitado a Gemini y dónde se valida en Python:**
+- **Definición del esquema JSON pedido a Gemini:** en `homelens/esquemas_ia.py` se declaran los modelos Pydantic `RespuestaExploracionIA` (compuesto por `ObjetoIA`, `RecuadroIA`, `ActividadIA` y `OpcionIA`) para la exploración visual, y `RespuestaFindItIA` para la verificación de desafíos Find It. En `homelens/integraciones/gemini.py`, `AdaptadorGemini._ejecutar_llamada_multimodal` pasa ese modelo en `types.GenerateContentConfig(response_mime_type="application/json", response_schema=esquema_respuesta, system_instruction=instrucciones)` junto con las instrucciones versionadas de `homelens/prompts/exploracion.txt` o `homelens/prompts/find_it.txt`.
+- **Validación de la respuesta en Python:** se realiza en dos etapas complementarias:
+  1. *Validación estructural del JSON:* dentro de `AdaptadorGemini._ejecutar_llamada_multimodal` (`homelens/integraciones/gemini.py`), `esquema_respuesta.model_validate_json(texto_respuesta)` verifica que el texto retornado por Gemini cumpla los tipos y campos obligatorios del esquema Pydantic.
+  2. *Validación geométrica, semántica y de dominio:* en `analizar_exploracion` y `verificar_find_it` (`homelens/analisis.py`) se comprueba que el estado pertenezca a `EstadoAnalisis` o `EstadoFindIt`, que los estados sin objetos no traigan elementos, que una exploración `UTILIZABLE` tenga entre 1 y 5 objetos con identificadores locales únicos, que cada recuadro cumpla `0 <= ymin < ymax <= 1000` y `0 <= xmin < xmax <= 1000` al instanciar `RecuadroNormalizado` (`homelens/modelos.py`), y que cada actividad tenga entre 1 y 2 preguntas con exactamente 3 opciones distintas, `opcion_correcta_id` existente y referencias válidas en `objetos_relacionados`. Recién superadas estas comprobaciones, `homelens/analisis.py` genera los `UUID` de dominio y construye `Exploracion` o `VerificacionFindIt`.
 
 ### 2.4 Actividades y soluciones
 
@@ -84,14 +88,26 @@ EventoTecnico: operacion_id; tipo_operacion; fecha; duracion_ms; estado; numero_
 
 ### 3.1 M0 Configuración y entorno
 
-Archivo principal: homelens/config.py. Registro técnico: homelens/telemetria.py.
+Archivo principal: `homelens/config.py`. Registro técnico: `homelens/telemetria.py`. Cálculo de costos y tarifas: `homelens/costos.py`. Vista privada de consumo para creadores: `homelens/ui/consumo.py`.
 
 ```python
-cargar_configuracion() -> Resultado[Configuracion]
+cargar_configuracion(ruta_env: str | None = None) -> Resultado[Configuracion]
 ```
 
 ```python
-registrar_evento(evento: EventoTecnico) -> None
+es_creador_autorizado(usuario: ContextoUsuario | None, config: Configuracion | None = None) -> bool
+```
+
+```python
+obtener_nombre_creador(user_id: UUID | None, config: Configuracion | None = None) -> str
+```
+
+```python
+registrar_evento(evento: EventoTecnico, repositorio: Any | None = None, usuario: ContextoUsuario | None = None) -> None
+```
+
+```python
+calcular_costo_gemini(modelo: str, prompt_tokens: int | None, candidates_tokens: int | None, thoughts_tokens: int | None = None, cached_tokens: int | None = None, total_tokens: int | None = None, fecha: datetime | None = None) -> ResultadoCalculoCosto
 ```
 
 Configuracion reúne parámetros de servicios, límites, tiempos y caché. No se imprime ni se serializa con secretos en registros. El registro de métricas debe tolerar un fallo sin perder resultados educativos.
@@ -100,128 +116,162 @@ Dockerfile, compose.yaml y .dockerignore se ubican en la raíz. .env.example doc
 
 ### 3.2 M1 Acceso de usuarios
 
-Archivo principal: homelens/acceso.py. Adaptador externo: homelens/integraciones/autenticacion.py.
+Archivo principal: `homelens/acceso.py`. Adaptador externo: `homelens/integraciones/autenticacion.py`. Vista: `homelens/ui/acceso.py`.
 
 ```python
-iniciar_acceso(retorno_permitido: str) -> Resultado[SolicitudAcceso]
+iniciar_acceso(retorno_permitido: str, config: Configuracion | None = None, adaptador: AdaptadorAutenticacion | None = None) -> Resultado[SolicitudAcceso]
 ```
 
 ```python
-completar_acceso(respuesta_proveedor: RespuestaAcceso) -> Resultado[ContextoUsuario]
+completar_acceso(respuesta_proveedor: RespuestaAcceso, config: Configuracion | None = None, adaptador: AdaptadorAutenticacion | None = None, retorno_permitido: str | None = None) -> Resultado[ContextoUsuario]
 ```
 
 ```python
-obtener_usuario_actual() -> Resultado[ContextoUsuario]
+obtener_usuario_actual(sesion_id: str | None = None, config: Configuracion | None = None, adaptador: AdaptadorAutenticacion | None = None) -> Resultado[ContextoUsuario]
 ```
 
 ```python
-cerrar_sesion() -> Resultado[Confirmacion]
+cerrar_sesion(sesion_id: str | None = None, config: Configuracion | None = None, adaptador: AdaptadorAutenticacion | None = None) -> Resultado[Confirmacion]
+```
+
+```python
+activar_modo_demo(config: Configuracion | None = None) -> Resultado[ContextoUsuario]
+```
+
+```python
+verificar_acceso_operacion(usuario: ContextoUsuario | None, config: Configuracion | None = None, adaptador: AdaptadorAutenticacion | None = None) -> Resultado[ContextoUsuario]
 ```
 
 SolicitudAcceso y RespuestaAcceso representan el mecanismo del proveedor elegido; no presuponen parámetros concretos de OAuth. Los retornos permitidos y la protección de la respuesta de autenticación se implementarán conforme al flujo del proveedor validado. No se guardan contraseñas propias.
 
-Cerrar sesión elimina el contexto privado de acceso, la imagen activa y la caché de audio de esa sesión mediante la coordinación de la aplicación. Cada operación protegida verifica que la identidad siga vigente, aunque la pantalla todavía muestre un usuario.
+Cerrar sesión elimina el contexto privado de acceso, la imagen activa y la caché de audio de esa sesión mediante la coordinación de la aplicación (`cerrar_sesion_usuario` en `homelens/ui/estado.py`). Cada operación protegida verifica que la identidad siga vigente, aunque la pantalla todavía muestre un usuario.
 
 ### 3.3 M2 Captura y preparación
 
-Archivo principal: homelens/imagenes.py.
+Archivo principal: `homelens/imagenes.py`. Vista de captura: `homelens/ui/captura.py` (`renderizar_pantalla_captura`).
 
 ```python
-preparar_imagen(contenido: bytes) -> Resultado[ImagenPreparada]
+preparar_imagen(contenido: bytes, max_bytes: int = 10_000_000, max_dimension_px: int | None = None) -> Resultado[ImagenPreparada]
 ```
 
 ```python
-liberar_imagen(estado_imagen: EstadoImagenTemporal) -> None
+liberar_imagen(referencia: Any) -> None
 ```
 
 La cámara y el selector de archivo están en la vista; M2 procesa los bytes y no importa Streamlit. Comprueba tamaño y formato antes de preparar. El cierre de recursos se garantiza también ante excepciones. liberar_imagen elimina referencias y temporales propios; no promete borrado físico de memoria ni de copias externas.
 
 ### 3.4 M3 Análisis con Gemini
 
-Archivo principal: homelens/analisis.py. Adaptador: homelens/integraciones/gemini.py. Instrucciones: homelens/prompts/.
+Archivo principal: `homelens/analisis.py`. Adaptador: `homelens/integraciones/gemini.py` (`AdaptadorGemini.analizar_imagen_exploracion` y `AdaptadorGemini.verificar_imagen_find_it`). Esquemas JSON: `homelens/esquemas_ia.py`. Instrucciones: `homelens/prompts/exploracion.txt` y `homelens/prompts/find_it.txt`.
 
 ```python
-analizar_exploracion(usuario: ContextoUsuario, imagen: ImagenPreparada, operacion_id: UUID) -> Resultado[Exploracion]
+analizar_exploracion(usuario: ContextoUsuario, imagen: ImagenPreparada, operacion_id: UUID, adaptador: AdaptadorGemini | None = None, repositorio: Any | None = None) -> Resultado[Exploracion]
 ```
 
 ```python
-verificar_find_it(usuario: ContextoUsuario, imagen: ImagenPreparada, desafio: DesafioFindIt, operacion_id: UUID) -> Resultado[VerificacionFindIt]
+verificar_find_it(usuario: ContextoUsuario, imagen: ImagenPreparada, desafio: DesafioFindIt, operacion_id: UUID | None = None, adaptador: AdaptadorGemini | None = None, repositorio: Any | None = None) -> Resultado[VerificacionFindIt]
 ```
 
-M3 utiliza modelos de respuesta externos y validadores internos. Aplica controles de consumo antes de cada llamada; los reintentos comparten operacion_id y cuentan individualmente. No guarda directamente en la base de datos. En Find it se comprueba que el desafío pertenece al usuario antes de enviarlo.
+```python
+obtener_actividades_publicas(actividades: list[Actividad]) -> list[ActividadPublica]
+```
+
+M3 utiliza modelos de respuesta externos y validadores internos. Aplica controles de consumo antes de cada llamada; los reintentos comparten operacion_id y cuentan individualmente. No guarda directamente exploraciones educativas en la base de datos. En Find it se comprueba la sesión activa y el desafío antes de enviarlo.
 
 La configuración del cliente vive en la integración; el prompt y el esquema se versionan. Ajustar instrucciones no debe obligar a modificar la vista o el repositorio. La selección o navegación de tarjetas no invoca estas funciones.
 
 ### 3.5 M4 Exploración y contenido
 
-Archivo principal: homelens/exploracion.py. Vista: homelens/ui/exploracion.py.
+Archivo principal: `homelens/exploracion.py`. Vista: `homelens/ui/exploracion.py`.
 
 ```python
 adaptar_recuadro(recuadro: RecuadroNormalizado, ancho_visible: int, alto_visible: int) -> RecuadroPantalla
 ```
 
 ```python
-construir_tarjetas(exploracion: Exploracion) -> list[TarjetaObjeto]
+calcular_coordenadas_recuadro(recuadro: RecuadroNormalizado, ancho_imagen: int, alto_imagen: int) -> tuple[int, int, int, int]
 ```
 
 ```python
-mostrar_exploracion(exploracion: Exploracion, imagen: ImagenPreparada) -> AccionExploracion | None
+dibujar_recuadros(imagen: ImagenPreparada, objetos: list[ObjetoEducativo], objeto_seleccionado_id: UUID | None = None) -> bytes
 ```
 
-Las dos primeras funciones son puras; mostrar_exploracion pertenece a la vista. AccionExploracion indica una intención, por ejemplo escuchar palabra, escuchar frase o iniciar práctica, con el identificador del objeto correspondiente. La coordinación resuelve esa intención mediante M5 o M6.
+```python
+construir_tarjetas(exploracion: Exploracion, ancho_visible: int | None = None, alto_visible: int | None = None) -> list[TarjetaObjeto]
+```
 
-La vista de historial muestra tarjetas de texto sin exigir fotografía. No debe intentar dibujar recuadros sobre una imagen que ya fue eliminada.
+```python
+mostrar_exploracion(exploracion: Exploracion, imagen: ImagenPreparada | None = None) -> None
+```
+
+Las funciones de `homelens/exploracion.py` son puras (incluyendo el alias `generar_imagen_anotada = dibujar_recuadros`); `mostrar_exploracion` pertenece a la vista (`homelens/ui/exploracion.py`) y coordina en pantalla la selección de objetos («Ver todos» / «Enfocar»), los controles de pronunciación (`mostrar_controles_audio` de `homelens/ui/audio.py`), el botón de guardado en el historial y el acceso al cuestionario interactivo.
+
+La vista de historial muestra tarjetas de texto sin exigir fotografía (`imagen=None`). No intenta dibujar recuadros sobre una imagen que ya fue liberada.
 
 ### 3.6 M5 Audio
 
-Archivo principal: homelens/audio.py. Adaptador: homelens/integraciones/tts.py.
+Archivo principal: `homelens/audio.py`. Adaptador: `homelens/integraciones/tts.py` (`AdaptadorTTS.sintetizar`). Vista: `homelens/ui/audio.py` (`mostrar_controles_audio`, `limpiar_audio_sesion_ui`).
 
 ```python
-obtener_audio(usuario: ContextoUsuario, solicitud: SolicitudAudio, operacion_id: UUID) -> Resultado[AudioDisponible]
+obtener_audio(usuario: ContextoUsuario, solicitud: SolicitudAudio, operacion_id: UUID, adaptador: AdaptadorTTS | None = None) -> Resultado[AudioDisponible]
+```
+
+```python
+tiene_audio_en_cache(usuario: ContextoUsuario, solicitud: SolicitudAudio) -> bool
 ```
 
 ```python
 limpiar_cache_audio(sesion_id: str) -> None
 ```
 
+```python
+limpiar_toda_cache_audio() -> None
+```
+
 Solo se acepta texto de una palabra o frase válida del contenido del usuario; la coordinación lo resuelve desde su identificador. Una petición arbitraria de texto no se expone como función libre en la pantalla. Los aciertos de caché no generan una llamada TTS. La reproducción efectiva la realiza la vista con el audio recibido.
 
 ### 3.7 M6 Prácticas y Find it
 
-Archivo principal: homelens/practicas.py. Las vistas se ubican en homelens/ui/practicas.py y homelens/ui/find_it.py.
+Archivo principal: `homelens/practicas.py`. Las vistas se ubican en `homelens/ui/cuestionarios.py` (`renderizar_pantalla_cuestionarios`, `guardar_intentos_cuestionario_finalizado`) y `homelens/ui/find_it.py` (`renderizar_pantalla_find_it`, `guardar_intento_find_it_pendiente`).
 
 ```python
-obtener_actividad_publica(usuario: ContextoUsuario, actividad_id: UUID) -> Resultado[ActividadPublica]
+obtener_actividad_publica(actividad: Actividad) -> ActividadPublica
 ```
 
 ```python
-responder_actividad(usuario: ContextoUsuario, actividad_id: UUID, opcion_id: str, intento_id: UUID) -> Resultado[ResultadoPractica]
+mezclar_opciones_actividad(actividad: Actividad) -> list[Opcion]
 ```
 
 ```python
-crear_desafio(usuario: ContextoUsuario, excluir_objeto_id: UUID | None = None) -> Resultado[DesafioFindIt]
+validar_y_responder_actividad(usuario: ContextoUsuario, actividad: Actividad, opcion_id: str, intento_id: UUID | None = None) -> Resultado[ResultadoPractica]
 ```
 
 ```python
-resolver_desafio(usuario: ContextoUsuario, desafio_id: UUID, imagen: ImagenPreparada, intento_id: UUID) -> Resultado[ResultadoPractica]
+responder_actividad(usuario: ContextoUsuario, actividad_id: UUID, opcion_id: str, opcion_correcta_id: str, explicacion: str, intento_id: UUID) -> Resultado[ResultadoPractica]
 ```
 
-M6 recupera actividad o desafío mediante M7, verifica pertenencia y calcula el resultado. responder_actividad usa la solución canónica sin consultar al modelo. resolver_desafio solicita a M3 la verificación y traduce sus estados a resultados educativos. M6 guarda el intento mediante M7 antes de declararlo registrado.
+```python
+obtener_desafios_find_it_disponibles(usuario: ContextoUsuario, exploracion_actual: Exploracion | None = None) -> list[DesafioFindIt]
+```
 
-ResultadoPractica incluye intento_id, resultado, explicación y registrado: bool. Si falla el guardado, se mantiene el resultado pendiente de esa operación y se ofrece reintentar solo su registro con la misma clave. No se vuelve a llamar a Gemini para persistir una verificación ya obtenida. La recuperación tras una recarga requiere conservar el resultado pendiente en el estado de sesión; si se pierde ese estado antes de guardarlo, se informa que no quedó registrado.
+```python
+construir_intento_cuestionario(usuario: ContextoUsuario, actividad: Actividad, opcion_elegida_id: str, resultado_practica: ResultadoPractica, fecha: datetime | None = None) -> IntentoPractica
+```
 
-Antes de resolver un intento ya persistido, M6 lo recupera y devuelve el mismo resultado. Durante una operación en curso, la coordinación bloquea nuevas confirmaciones con su clave. Cambiar de desafío permite excluir la categoría anterior cuando exista otra; si no hay alternativa, lo informa. Elegir un desafío no llama a Gemini.
+```python
+construir_intento_find_it(usuario: ContextoUsuario, desafio: DesafioFindIt, verificacion: VerificacionFindIt, intento_id: UUID | None = None, fecha: datetime | None = None) -> IntentoPractica
+```
+
+M6 evalúa localmente las preguntas de cuestionarios con la solución canónica de la entidad `Actividad` en el servidor sin consultar a Gemini, y en Find It construye los desafíos disponibles (a partir del vocabulario explorado y del catálogo doméstico base), invoca `verificar_find_it` (M3) y convierte el resultado en `IntentoPractica` para guardarlo de forma idempotente mediante M7 (`RepositorioSupabase.guardar_intento`).
+
+ResultadoPractica incluye intento_id, resultado, explicación y registrado: bool. Si falla el guardado, se mantiene el resultado pendiente de esa operación en `st.session_state` y se ofrece reintentar solo su registro con la misma clave (`guardar_intentos_cuestionario_finalizado` en `homelens/ui/cuestionarios.py` y `guardar_intento_find_it_pendiente` en `homelens/ui/find_it.py`). No se vuelve a llamar a Gemini para persistir una verificación ya obtenida.
 
 ### 3.8 M7 Persistencia e historial
 
-Contrato: homelens/datos/repositorio.py. Implementación propuesta: homelens/datos/supabase_repo.py.
+Contrato: `homelens/datos/repositorio.py` (`RepositorioHomeLens`). Implementación integrada: `homelens/datos/supabase.py` (`RepositorioSupabase`). Vista de historial: `homelens/ui/historial.py` (`renderizar_pantalla_historial`).
 
 ```python
 guardar_exploracion(usuario: ContextoUsuario, exploracion: Exploracion) -> Resultado[UUID]
-```
-
-```python
-listar_exploraciones(usuario: ContextoUsuario, limite: int, cursor: str | None) -> Resultado[Pagina[ExploracionResumen]]
 ```
 
 ```python
@@ -229,7 +279,7 @@ obtener_exploracion(usuario: ContextoUsuario, exploracion_id: UUID) -> Resultado
 ```
 
 ```python
-obtener_actividad(usuario: ContextoUsuario, actividad_id: UUID) -> Resultado[Actividad]
+listar_exploraciones(usuario: ContextoUsuario, limite: int = 50) -> Resultado[list[ResumenExploracion]]
 ```
 
 ```python
@@ -249,94 +299,95 @@ guardar_intento(usuario: ContextoUsuario, intento: IntentoPractica) -> Resultado
 ```
 
 ```python
-obtener_intento(usuario: ContextoUsuario, intento_id: UUID) -> Resultado[IntentoPractica | None]
-```
-
-```python
 listar_intentos(usuario: ContextoUsuario, desde: datetime | None = None) -> Resultado[list[IntentoPractica]]
 ```
 
-Ninguna consulta omite la comprobación de pertenencia. Las relaciones entre exploración, objeto, actividad y desafío se validan en el servidor y se respaldan mediante restricciones de base de datos. En Supabase se configurarán políticas de acceso acordes con el mecanismo usado; el filtrado por user_id no reemplaza la autorización. Si una credencial de servidor evita esas políticas, la capa de datos deberá mantener las comprobaciones y no exponerla.
+```python
+registrar_consumo_gemini(usuario: ContextoUsuario, registro: RegistroConsumoIA) -> Resultado[UUID]
+```
 
-La exploración, sus objetos y sus actividades se guardan de forma atómica mediante una operación transaccional de base de datos. No se considera guardada si solo se insertó una parte. El identificador de exploración evita duplicarla al reintentar. intento_id es único; la misma clave y el mismo contenido devuelven confirmación sin duplicar, mientras que contenido diferente con la misma clave produce error.
+```python
+consultar_consumo_gemini(usuario: ContextoUsuario, filtro: FiltroConsumoIA | None = None) -> Resultado[list[RegistroConsumoIA]]
+```
+
+Ninguna consulta omite la comprobación de pertenencia. En Supabase se aplican políticas Row Level Security (RLS) basadas en `auth.uid()` y permisos mínimos (`GRANT SELECT, INSERT`, con `UPDATE` y `DELETE` revocados).
+
+La exploración, sus objetos y sus actividades se guardan de forma atómica en una única fila de `public.exploraciones` (con columnas `JSONB` para `objetos` y `actividades`). El identificador de exploración y el `intento_id` evitan duplicaciones al reintentar mediante `upsert(..., ignore_duplicates=True)` (`ON CONFLICT DO NOTHING`).
 
 ### 3.9 M8 Progreso
 
-Archivo principal: homelens/progreso.py. Vista: homelens/ui/progreso.py.
+Archivo principal: `homelens/progreso.py`. Vista: `homelens/ui/progreso.py` (`renderizar_pantalla_progreso`, `formatear_porcentaje_aciertos`).
 
 ```python
-obtener_progreso(usuario: ContextoUsuario) -> Resultado[ResumenProgreso]
+obtener_progreso(usuario: ContextoUsuario, repositorio: RepositorioHomeLens | None = None, config: Configuracion | None = None) -> Resultado[ResumenProgreso]
+```
+
+```python
+consultar_progreso_usuario(usuario: ContextoUsuario, repositorio: RepositorioHomeLens | None = None, config: Configuracion | None = None) -> Resultado[ResumenProgreso]
 ```
 
 ```python
 calcular_progreso(vocabulario: list[ObjetoEducativo], intentos: list[IntentoPractica]) -> ResumenProgreso
 ```
 
-La primera coordina consultas con M7; la segunda es pura. Cuestionarios y Find it se presentan por separado. Los resultados indeterminables se informan aparte y se excluyen del denominador de aciertos sobre intentos evaluables. Si no hay intentos evaluables, se muestra sin datos; no se inventa un porcentaje de cero o de cien.
+`obtener_progreso` (y su alias `consultar_progreso_usuario`) coordina las consultas `listar_vocabulario` y `listar_intentos` con M7; `calcular_progreso` es pura. Cuestionarios y Find it se presentan por separado. Los resultados indeterminables se informan con su propio conteo y se excluyen del denominador de aciertos sobre intentos evaluables. Si no hay intentos evaluables, se devuelve `None` (mostrado en pantalla como «Sin intentos evaluables»); si el porcentaje real es cero, se muestra «0 %».
 
-## 4 Persistencia propuesta
+## 4 Persistencia implementada en Supabase (`sql/`)
 
-Las estructuras compartidas no obligan a usar una tabla por cada modelo. La siguiente propuesta separa los registros principales y mantiene opciones y ejemplos sencillos en campos estructurados cuando corresponda. El SQL definitivo se elaborará después de validar la integración de acceso y datos.
+En la implementación integrada en `main`, las tablas de PostgreSQL en Supabase consolidan los objetos y actividades como arreglos `JSONB` validados dentro de `public.exploraciones` para garantizar atomicidad en una sola inserción, y separan los intentos y la telemetría en tablas inmutables con RLS:
 
-| Tabla | Contenido y relaciones |
+| Tabla SQL (`sql/`) | Contenido y restricciones |
 | --- | --- |
-| exploraciones | id, user_id, fecha, estado y versión de esquema. Raíz de objetos y actividades. |
-| objetos | id, exploracion_id, nombres, ejemplos y recuadro estructurado. |
-| actividades | id, exploracion_id, pregunta, opciones estructuradas, opción correcta y explicación. |
-| actividad_objetos | actividad_id y objeto_id. Permite relacionar una pregunta con uno o varios objetos. |
-| desafios_find_it | id, user_id, objeto_origen_id, nombres del objeto solicitado y fecha. |
-| intentos | id, user_id, tipo, actividad_id o desafio_id, opción elegida, resultado y fecha. |
+| `public.exploraciones` (`sql/migracion_tarea_7_historial.sql`) | `id` (UUID PK), `user_id` (FK a `auth.users`), `estado`, `creada_en`, `schema_version`, `objetos` (`JSONB` array) y `actividades` (`JSONB` array). RLS por `user_id = auth.uid()`. |
+| `public.intentos_practica` (`sql/migracion_tarea_10_intentos_practica.sql`) | `id` (UUID PK, `intento_id`), `user_id` (FK a `auth.users`), `tipo` (`CUESTIONARIO` o `FIND_IT`), `fecha`, `actividad_id`, `desafio_id`, `opcion_elegida_id`, `resultado` (`CORRECTO`, `INCORRECTO`, `INDETERMINABLE`) y `objeto_ids` (`JSONB` array). RLS por `user_id = auth.uid()`. |
+| `public.creadores_autorizados` (`sql/migracion_tarea_consumo_ia.sql`) | `user_id` (UUID PK), `nombre_etiqueta`, `creado_en`. Padrón restringido de creadores con política SELECT no recursiva (`user_id = (SELECT auth.uid())`). |
+| `public.consumo_gemini` (`sql/migracion_tarea_consumo_ia.sql`) | `id`, `operacion_id` (`UNIQUE`), `user_id`, `fecha`, `modelo`, `estado`, `duracion_ms`, `numero_llamadas`, `numero_reintentos`, `codigo_error`, `prompt_tokens`, `candidates_tokens`, `thoughts_tokens`, `total_tokens`, `cached_tokens`, `tarifa_version`, `costo_estimado` y `metadatos` (`JSONB`). |
 
-Los objetos practicados se derivan de las relaciones de la actividad o del desafío canónico. objeto_ids del modelo de intento es una proyección para cálculo, no un dato libre que la vista pueda alterar. Se usan claves foráneas, unicidad y comprobaciones del tipo de intento; las verificaciones entre relaciones también impiden enlazar registros de otros usuarios.
+No se incluyen fotos, claves, tokens ni audios en estas tablas. En modo demostración local (`usuario.es_demo=True`), `RepositorioSupabase` utiliza diccionarios aislados en `st.session_state` (`_exploraciones_demo` e `_intentos_demo`) bajo el mismo contrato `RepositorioHomeLens`.
 
-No se incluyen fotos, claves, tokens ni audios en estas tablas. Los registros técnicos tienen un destino separado del historial educativo. La base de datos no mantiene una tabla propia de contraseñas. Si se adopta SQLite para una demostración, su adaptador implementará el mismo contrato de repositorio y su archivo tendrá un volumen persistente; la autenticación y el alcance se revisarán por separado.
-
-## 5 Carpetas y archivos
+## 5 Carpetas y archivos verificados en el repositorio
 
 | Ruta relativa | Responsabilidad |
 | --- | --- |
-| app.py | Entrada de Streamlit y coordinación de pantallas. Delega los recorridos a los módulos. |
-| homelens/modelos.py | Estructuras y estados de dominio compartidos. Sin dependencias de interfaz o servicios. |
-| homelens/errores.py | Resultado, ErrorOperacion y códigos comunes. |
-| homelens/config.py y telemetria.py | M0: configuración y eventos técnicos. |
-| homelens/acceso.py | M1: acceso y contexto de identidad. |
-| homelens/imagenes.py | M2: preparación y liberación de imágenes. |
-| homelens/analisis.py | M3: exploración y verificación con sus validaciones. |
-| homelens/exploracion.py | M4: tarjetas y adaptación de recuadros. |
-| homelens/audio.py | M5: obtención y caché temporal de audio. |
-| homelens/practicas.py | M6: cuestionarios, desafíos y registro de intentos. |
-| homelens/progreso.py | M8: consulta y cálculo del progreso. |
-| homelens/datos/ | M7: repositorio.py y supabase_repo.py. sqlite_repo.py solo si se adopta la contingencia. |
-| homelens/integraciones/ | autenticacion.py, gemini.py y tts.py. Encapsulan los clientes externos. |
-| homelens/prompts/ | exploracion.txt y find_it.txt; instrucciones versionadas. |
-| homelens/esquemas_ia.py | Modelos de respuesta del proveedor separados del dominio y de persistencia. |
-| homelens/ui/ | acceso.py, captura.py, exploracion.py, practicas.py, find_it.py, historial.py y progreso.py. |
-| homelens/ui/estado.py | Estado por sesión, operaciones pendientes, acciones e invalidación al cambiar usuario. |
-| migrations/ | SQL versionado: tablas, restricciones y políticas de acceso. |
-| tests/ | Casos de validación, corrección, pertenencia e idempotencia; simulaciones de servicios externos. |
-| evaluacion/ | Rúbrica, manifiesto de casos y resultados manuales. Fotografías autorizadas se gestionan aparte. |
-| docs/ | Acuerdos técnicos y guía del equipo. |
-| Dockerfile y compose.yaml | Construcción y ejecución del entorno compartido. |
-| .dockerignore y .gitignore | Exclusión de secretos, temporales y materiales locales. |
-| .env.example | Nombres de configuración con valores ficticios. |
-| pyproject.toml y archivo de bloqueo | Dependencias y versiones reproducibles; herramienta de gestión pendiente de elección. |
-| README.md | Instalación, configuración, ejecución y recorrido de demostración. |
+| `app.py` | Entrada de Streamlit, barra lateral de sesión y enrutamiento hacia cada pantalla. |
+| `homelens/modelos.py` | Entidades y enumeraciones inmutables del dominio (`Exploracion`, `ObjetoEducativo`, `RecuadroNormalizado`, `Actividad`, `DesafioFindIt`, `VerificacionFindIt`, `IntentoPractica`, `ResumenProgreso`, `EventoTecnico`, `RegistroConsumoIA`). |
+| `homelens/errores.py` | `Resultado[T]`, `ErrorOperacion` y códigos de error tipificados. |
+| `homelens/config.py`, `homelens/telemetria.py` y `homelens/costos.py` | M0: carga de entorno, autorización de creadores, registro de eventos técnicos y cálculo de costos de Gemini con `Decimal`. |
+| `homelens/acceso.py` | M1: flujo OAuth con Google/Supabase, verificación de sesión y modo demo. |
+| `homelens/imagenes.py` | M2: validación JPEG/PNG hasta 10 MB, corrección EXIF, redimensionamiento y liberación en memoria. |
+| `homelens/analisis.py` | M3: `analizar_exploracion` y `verificar_find_it` con validaciones geométricas y pedagógicas. |
+| `homelens/esquemas_ia.py` | Esquemas Pydantic pedidos a Gemini (`RespuestaExploracionIA` y `RespuestaFindItIA`). |
+| `homelens/prompts/` | `exploracion.txt` y `find_it.txt`; instrucciones del sistema versionadas. |
+| `homelens/exploracion.py` | M4: `calcular_coordenadas_recuadro`, `dibujar_recuadros`, `adaptar_recuadro` y `construir_tarjetas`. |
+| `homelens/audio.py` | M5: `obtener_audio`, caché temporal acotada por sesión y deduplicación de síntesis en curso. |
+| `homelens/practicas.py` | M6: proyección y corrección local de actividades, catálogo y desafíos Find It, y constructores de `IntentoPractica`. |
+| `homelens/progreso.py` | M8: `obtener_progreso`, `consultar_progreso_usuario` y `calcular_progreso`. |
+| `homelens/datos/` | M7: `repositorio.py` (`RepositorioHomeLens`) y `supabase.py` (`RepositorioSupabase`). |
+| `homelens/integraciones/` | `autenticacion.py` (`AdaptadorAutenticacion`), `gemini.py` (`AdaptadorGemini`) y `tts.py` (`AdaptadorTTS`). |
+| `homelens/ui/` | `acceso.py`, `captura.py`, `exploracion.py`, `audio.py`, `cuestionarios.py`, `find_it.py`, `historial.py`, `progreso.py`, `consumo.py` y `estado.py`. |
+| `sql/` | Scripts SQL versionados para Supabase (`migracion_tarea_7_historial.sql`, `migracion_tarea_10_intentos_practica.sql`, `migracion_tarea_consumo_ia.sql`, `procedimiento_registro_creadores.sql`, `verificar_seguridad_rls.sql`). |
+| `tests/` | Suite de pruebas automatizadas del software en `main` con simulaciones de servicios externos y `AppTest` (257 pruebas aprobadas en la corrida local verificada sobre `origin/main` en el commit `d4aa17a`, PR #13). |
+| `docs/` | Documentación técnica (`docs/TAREA8_AUDIO_BAJO_DEMANDA.md` en `main`; `docs/evaluacion/A1..A4` en la rama `origin/HLE_Evaluacion`). |
+| `scripts/evaluacion/` y `data/evaluacion/` | Flujo A1–A3 y dataset sintético anotado en CVAT (disponibles en la rama `origin/HLE_Evaluacion`). |
+| `Dockerfile`, `compose.yaml`, `.dockerignore`, `.gitignore`, `.env.example`, `pyproject.toml`, `requirements.txt`, `README.md` | Configuración de contenedor, dependencias y guía de instalación y uso. |
 
-Los paquetes Python incorporarán sus archivos __init__.py. Las rutas describen el código que se creará; este documento no afirma que esos archivos ya existan. No se agregan capas separadas por cada función ni un contenedor por cada módulo.
+## 6 Recorridos y seguimiento en el código
 
-## 6 Recorridos y coordinación
+### 6.1 Cómo seguir una fotografía desde la carga hasta los objetos, el vocabulario y el cuestionario
 
-### 6.1 Explorar y guardar
-
-1. La vista obtiene el usuario mediante M1 y recibe los bytes de la imagen. M2 valida y prepara. La vista permite revisar sin llamar a Gemini.
-
-2. Al confirmar Analizar, la coordinación asigna operacion_id, marca la operación en curso y llama una vez a M3, con reintentos controlados si corresponden.
-
-3. Una respuesta inválida se informa como error; una respuesta sin objetos o que requiere nueva captura se muestra sin generar vocabulario. Una exploración utilizable se conserva en el estado de sesión y se envía a M7.
-
-4. M7 guarda atómicamente la exploración. Si falla, se muestra que el contenido está disponible temporalmente pero no quedó guardado; reintentar persistencia no repite el análisis.
-
-5. M4 muestra la exploración y la copia temporal de la imagen. Navegar, escuchar o practicar utiliza el resultado existente. Al salir o reemplazarla, se liberan sus recursos temporales.
+1. **Carga o captura en pantalla (`homelens/ui/captura.py` y `homelens/ui/estado.py`):** en `renderizar_pantalla_captura(config)`, el usuario selecciona archivo (`st.file_uploader`) o cámara (`st.camera_input`). Al recibir bytes nuevos, se llama a `registrar_nueva_imagen(bytes_capturados, nuevo_origen)` en `homelens/ui/estado.py`, que limpia cualquier exploración o preparación anterior (`invalidar_preparacion_anterior()`) y guarda los bytes crudos en `st.session_state.imagen_cargada_bytes` sin llamar a Gemini.
+2. **Preparación y saneamiento en memoria (`homelens/imagenes.py`):** cuando el usuario pulsa «⚙️ Preparar Imagen», `renderizar_pantalla_captura` invoca `preparar_imagen(contenido=st.session_state.imagen_cargada_bytes, max_bytes=config.max_image_size_bytes, max_dimension_px=1280)`. Esta función comprueba que el archivo no supere 10 000 000 bytes, valida la cabecera real JPEG/PNG, decodifica la imagen completa, aplica `ImageOps.exif_transpose` para corregir la orientación EXIF, elimina metadatos y devuelve `Resultado[ImagenPreparada]`, almacenado en `st.session_state.imagen_preparada`.
+3. **Solicitud a Gemini con esquema JSON estructurado (`homelens/analisis.py`, `homelens/esquemas_ia.py` y `homelens/integraciones/gemini.py`):** cuando el usuario pulsa «✨ Analizar Fotografía con Gemini», `renderizar_pantalla_captura` llama a `analizar_exploracion(usuario, imagen=st.session_state.imagen_preparada, operacion_id=uuid4())` en `homelens/analisis.py`.
+   - `analizar_exploracion` verifica la sesión activa, lee `homelens/prompts/exploracion.txt` con `_cargar_prompt_exploracion()` e invoca `AdaptadorGemini.analizar_imagen_exploracion(...)` en `homelens/integraciones/gemini.py`.
+   - `AdaptadorGemini._ejecutar_llamada_multimodal` construye `types.GenerateContentConfig(system_instruction=instrucciones, temperature=0.2, response_mime_type="application/json", response_schema=RespuestaExploracionIA)`, donde `RespuestaExploracionIA` está definida en `homelens/esquemas_ia.py`.
+4. **Validación de la respuesta en Python (`homelens/integraciones/gemini.py`, `homelens/analisis.py` y `homelens/modelos.py`):**
+   - Primero, `AdaptadorGemini._ejecutar_llamada_multimodal` valida el JSON crudo contra Pydantic con `RespuestaExploracionIA.model_validate_json(texto_respuesta)` y registra el evento técnico de consumo mediante `registrar_evento(...)` (`homelens/telemetria.py` y `homelens/costos.py`).
+   - Segundo, `analizar_exploracion` (`homelens/analisis.py`) valida las reglas del dominio: convierte `respuesta_ia.estado` a `EstadoAnalisis` (`UTILIZABLE`, `SIN_OBJETOS_CLAROS`, `REPETIR_CAPTURA` o `FUERA_DE_ALCANCE`); verifica que los estados no utilizables no traigan objetos ni actividades; comprueba para `UTILIZABLE` entre 1 y 5 objetos con textos bilingües completos y coordenadas `[ymin, xmin, ymax, xmax]` válidas entre 0 y 1000 (`RecuadroNormalizado.__post_init__` en `homelens/modelos.py`); y valida entre 1 y 2 actividades con 3 opciones distintas, `opcion_correcta_id` perteneciente a las opciones y `objetos_relacionados` existentes. Con ello construye la entidad inmutable `Exploracion` y la guarda en `st.session_state.exploracion_actual`.
+5. **Presentación de recuadros, tarjetas de vocabulario, audio y guardado (`homelens/ui/exploracion.py` y `homelens/exploracion.py`):** `renderizar_pantalla_captura` llama a `mostrar_exploracion(exploracion, imagen)` en `homelens/ui/exploracion.py`.
+   - Si el estado es `UTILIZABLE`, `dibujar_recuadros(imagen, exploracion.objetos, objeto_seleccionado_id)` en `homelens/exploracion.py` escala cada `RecuadroNormalizado` a píxeles reales con `calcular_coordenadas_recuadro(...)` y dibuja las cajas y etiquetas `#1..#5` sobre una copia en memoria de la imagen preparada.
+   - Debajo del visor responsivo se renderizan las tarjetas educativas bilingües (`EN · US` / `ES`) con frase de ejemplo, botones «Enfocar» / «Ver todos» y los controles de pronunciación `mostrar_controles_audio(exploracion, obj)` (`homelens/ui/audio.py` -> `obtener_audio` en `homelens/audio.py`).
+   - Si el usuario pulsa «💾 Guardar», se invoca `RepositorioSupabase.guardar_exploracion(usuario_actual, exploracion)` en `homelens/datos/supabase.py`.
+6. **Paso al cuestionario interactivo (`homelens/ui/cuestionarios.py` y `homelens/practicas.py`):** al pulsar «🚀 Comenzar Cuestionario Interactivo» al pie de `mostrar_exploracion` (o entrar a «Prácticas y Cuestionarios» en `app.py`), `renderizar_pantalla_cuestionarios(config)` en `homelens/ui/cuestionarios.py` oculta la solución proyectando cada pregunta con `obtener_actividad_publica(actividad)` y mezclando sus opciones con `mezclar_opciones_actividad(actividad)`. Al confirmar una opción, `validar_y_responder_actividad(usuario, actividad, opcion_id, intento_id)` en `homelens/practicas.py` corrige localmente sin llamar a Gemini, muestra la explicación y, al completar el cuestionario, `guardar_intentos_cuestionario_finalizado(...)` persiste cada `IntentoPractica` en `public.intentos_practica` mediante `RepositorioSupabase.guardar_intento(...)`.
 
 ### 6.2 Responder y repasar
 
