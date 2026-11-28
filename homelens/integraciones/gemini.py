@@ -77,8 +77,8 @@ class AdaptadorGemini:
 
     def _ejecutar_llamada_multimodal(
         self,
-        imagen_bytes: bytes,
-        mime_type: str,
+        imagen_bytes: Optional[bytes],
+        mime_type: Optional[str],
         instrucciones: str,
         prompt_usuario: str,
         esquema_respuesta: Any,
@@ -87,7 +87,7 @@ class AdaptadorGemini:
         usuario: Optional[ContextoUsuario] = None,
         repositorio: Optional[Any] = None,
     ) -> Resultado[Any]:
-        """Ejecuta una llamada multimodal estructurada a Gemini con reintentos y telemetría."""
+        """Ejecuta una llamada estructurada (multimodal o textual) a Gemini con reintentos y telemetría."""
         op_id = operacion_id or uuid4()
         usr = usuario or self.usuario
         repo = repositorio or self.repositorio
@@ -119,7 +119,11 @@ class AdaptadorGemini:
             )
 
         try:
-            parte_imagen = types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type)
+            if imagen_bytes is not None and mime_type is not None:
+                parte_imagen = types.Part.from_bytes(data=imagen_bytes, mime_type=mime_type)
+                contenidos: list[Any] = [parte_imagen, prompt_usuario]
+            else:
+                contenidos = [prompt_usuario]
             config_generacion = types.GenerateContentConfig(
                 system_instruction=instrucciones,
                 temperature=0.2,
@@ -145,7 +149,7 @@ class AdaptadorGemini:
             try:
                 respuesta = cliente.models.generate_content(
                     model=self.modelo,
-                    contents=[parte_imagen, prompt_usuario],
+                    contents=contenidos,
                     config=config_generacion,
                 )
 
@@ -321,6 +325,29 @@ class AdaptadorGemini:
             prompt_usuario=f"Verify whether this image clearly shows the target object: {objeto_objetivo}.",
             esquema_respuesta=RespuestaFindItIA,
             tipo_operacion="verificacion_find_it_gemini",
+            operacion_id=operacion_id,
+            usuario=usuario,
+            repositorio=repositorio,
+        )
+
+    def generar_respuesta_estructurada(
+        self,
+        instrucciones: str,
+        prompt_usuario: str,
+        esquema_respuesta: Any,
+        tipo_operacion: str = "agente_tutor_gemini",
+        operacion_id: Optional[UUID] = None,
+        usuario: Optional[ContextoUsuario] = None,
+        repositorio: Optional[Any] = None,
+    ) -> Resultado[Any]:
+        """Ejecuta una llamada estructurada de texto con validación Pydantic y telemetría."""
+        return self._ejecutar_llamada_multimodal(
+            imagen_bytes=None,
+            mime_type=None,
+            instrucciones=instrucciones,
+            prompt_usuario=prompt_usuario,
+            esquema_respuesta=esquema_respuesta,
+            tipo_operacion=tipo_operacion,
             operacion_id=operacion_id,
             usuario=usuario,
             repositorio=repositorio,

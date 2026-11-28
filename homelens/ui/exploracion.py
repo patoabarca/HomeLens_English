@@ -15,6 +15,7 @@ from homelens.modelos import Exploracion, ImagenPreparada, EstadoAnalisis
 from homelens.exploracion import dibujar_recuadros, PALETA_COLORES_OBJETOS
 from homelens.ui.estado import descartar_imagen_actual
 from homelens.ui.audio import mostrar_controles_audio
+from homelens.ui.tutor import renderizar_seccion_tutor_en_exploracion
 
 
 def _cb_enfocar_objeto_tarjeta(
@@ -149,11 +150,18 @@ def mostrar_exploracion(
         mapa_id_a_opcion[str(obj.objeto_id)] = etiqueta
 
     key_widget = f"selector_objeto_activo_{exploracion.exploracion_id}"
+    key_pendiente = f"_pendiente_selector_objeto_activo_{exploracion.exploracion_id}"
     id_actual = st.session_state.get("objeto_seleccionado_id")
     opcion_sincronizada = mapa_id_a_opcion.get(str(id_actual), "👁️ Ver todos")
 
+    # Si el tutor dejó una selección pendiente tras el renderizado previo, aplicarla una sola vez antes de crear el widget
+    if key_pendiente in st.session_state:
+        opcion_pendiente = st.session_state.pop(key_pendiente)
+        st.session_state[key_widget] = (
+            opcion_pendiente if opcion_pendiente in opciones_seleccion else opcion_sincronizada
+        )
     # Inicializar la clave del widget únicamente si aún no existe en session_state
-    if key_widget not in st.session_state:
+    elif key_widget not in st.session_state:
         st.session_state[key_widget] = opcion_sincronizada
 
     st.markdown("#### Selección de objeto:")
@@ -396,6 +404,9 @@ def mostrar_exploracion(
             )
             # Controles de audio bajo demanda (M5 - Victoria)
             mostrar_controles_audio(exploracion, obj)
+
+    # 5.5. Práctica opcional de vocabulario con el Agente Tutor
+    renderizar_seccion_tutor_en_exploracion(exploracion)
 
     # 6. Invitación al Cuestionario Interactivo de la Exploración (M6 - Tarea 9)
     if exploracion.actividades:

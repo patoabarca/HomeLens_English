@@ -110,6 +110,20 @@ def inicializar_estado_sesion() -> None:
         st.session_state.find_it_uploader_version = 0
     if "find_it_camera_version" not in st.session_state:
         st.session_state.find_it_camera_version = 0
+    # Estado de práctica opcional con el Agente Tutor
+    if "tutor_activo" not in st.session_state:
+        st.session_state.tutor_activo = False
+    if "tutor_estado" not in st.session_state:
+        st.session_state.tutor_estado = None
+    if "tutor_ultima_operacion_fallida" not in st.session_state:
+        st.session_state.tutor_ultima_operacion_fallida = None
+
+
+def limpiar_datos_tutor() -> None:
+    """Restablece el estado de la práctica opcional del Agente Tutor."""
+    st.session_state.tutor_activo = False
+    st.session_state.tutor_estado = None
+    st.session_state.tutor_ultima_operacion_fallida = None
 
 
 def limpiar_resultado_find_it() -> None:
@@ -182,6 +196,7 @@ def limpiar_datos_exploracion() -> None:
     st.session_state.intento_activo_id = None
     st.session_state.operacion_en_curso = False
     limpiar_datos_cuestionario()
+    limpiar_datos_tutor()
 
 
 def invalidar_preparacion_anterior() -> None:
@@ -198,6 +213,7 @@ def invalidar_preparacion_anterior() -> None:
     st.session_state.imagen_asociada_id = None
     st.session_state.intento_activo_id = None
     limpiar_datos_cuestionario()
+    limpiar_datos_tutor()
 
 
 def registrar_nueva_imagen(contenido: Optional[bytes], origen: str) -> None:
