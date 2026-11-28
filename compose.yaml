@@ -8,6 +8,8 @@ services:
       - "8501:8501"
     env_file:
       - .env
+    volumes:
+      - ../homelens-credentials/tts.json:/run/secrets/google-tts.json:ro
     environment:
       - APP_ENV=development
     restart: unless-stopped
